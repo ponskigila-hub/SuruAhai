@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt && cd frontend && npm ci",
+  "installCommand": "(uv pip install --system -r requirements.txt || python3 -m pip install --break-system-packages -r requirements.txt) && cd frontend && npm ci",
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/build",
   "rewrites": [
