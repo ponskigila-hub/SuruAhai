@@ -3,7 +3,9 @@ import axios from 'axios';
 
 const AuthContext = createContext(null);
 
-const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://127.0.0.1:8001';
+const API_URL =
+  process.env.REACT_APP_BACKEND_URL ??
+  (process.env.NODE_ENV === 'production' ? '' : 'http://127.0.0.1:8001');
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
