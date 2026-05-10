@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "(uv pip install --system -r requirements.txt || python3 -m pip install --break-system-packages -r requirements.txt) && cd frontend && npm ci",
-  "buildCommand": "cd frontend && npm run build",
+  "installCommand": "REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo \"$PWD\") && (uv pip install --system -r \"$REPO_ROOT/requirements.txt\" || python3 -m pip install --break-system-packages -r \"$REPO_ROOT/requirements.txt\") && npm ci --prefix \"$REPO_ROOT/frontend\"",
+  "buildCommand": "REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo \"$PWD\") && npm run build --prefix \"$REPO_ROOT/frontend\"",
   "outputDirectory": "frontend/build",
   "rewrites": [
     {
