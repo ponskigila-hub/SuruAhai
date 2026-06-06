@@ -912,6 +912,13 @@ def seed_data():
 
 if __name__ == "__main__":
     import uvicorn
+    import os
 
-    # String import enables --reload-style auto-reload on file changes (dev).
-    uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=True)
+    port = int(os.environ.get("PORT", 3000))
+
+    uvicorn.run(
+        "backend.server:app",
+        host="0.0.0.0",
+        port=port,
+        reload=False
+    )
