@@ -912,8 +912,8 @@ def seed_data():
 
 import os
 
-port = int(os.environ.get("PORT", 8000))
+port = int(os.environ.get("PORT", 3000))
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=port)
+    uvicorn.run("backend.server:app", host="0.0.0.0", port=port)
