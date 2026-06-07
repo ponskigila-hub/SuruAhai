@@ -215,7 +215,7 @@ const LandingPage = () => {
               <img
                 src="/ac-service.jpg"
                 alt="AC service technician working"
-                className="w-[500px] h-100 object-cover rounded-lg border border-gray-300 shadow"
+                className="w-[1000px] h-150 object-cover rounded-lg border border-gray-300 shadow"
               />
             </div>
           </div>
