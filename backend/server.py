@@ -27,7 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database
+# Database connection with caching for serverless (Vercel)
 MONGO_URL = os.environ.get("MONGO_URL")
 DB_NAME = os.environ.get("DB_NAME", "suruahai")
 
@@ -36,22 +36,16 @@ _mongo_client = None
 def get_db():
     global _mongo_client
     if _mongo_client is None:
-        # Gunakan timeout agar tidak hang terlalu lama
         _mongo_client = MongoClient(
             MONGO_URL,
-            serverSelectionTimeoutMS=5000,  # 5 detik timeout
+            serverSelectionTimeoutMS=5000,
             connectTimeoutMS=5000,
             socketTimeoutMS=5000
         )
-        # Verifikasi koneksi (opsional, bisa dihapus jika ingin lebih cepat)
-        try:
-            _mongo_client.admin.command('ping')
-        except Exception as e:
-            logger.error(f"MongoDB connection failed: {e}")
-            raise
+        # Opsional: verifikasi koneksi
+        _mongo_client.admin.command('ping')
     return _mongo_client[DB_NAME]
 
-# Gunakan fungsi get_db() untuk mendapatkan instance database
 db = get_db()
 
 # Collections
