@@ -38,7 +38,6 @@ const AdminDashboard = () => {
     setLoadingEscrow(true);
     try {
       const res = await getEscrowList(page, 50);
-      // Assuming API returns { data: [...], pagination: {...} }
       setEscrows(res.data || []);
       setEscrowPagination(res.pagination || { totalPages: 1, currentPage: page });
       setEscrowPage(page);
@@ -60,7 +59,6 @@ const AdminDashboard = () => {
       setDashboard(dashboardRes.data);
       setUsers(usersRes.data);
       setOrders(ordersRes.data);
-      // Load escrow separately with pagination
       await loadEscrow(1);
     } catch (error) {
       console.error('Error loading data:', error);
