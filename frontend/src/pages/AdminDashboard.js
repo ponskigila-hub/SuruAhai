@@ -34,6 +34,22 @@ const AdminDashboard = () => {
     loadData();
   }, []);
 
+  const loadEscrow = async (page = 1) => {
+    setLoadingEscrow(true);
+    try {
+      const res = await getEscrowList(page, 50);
+      // Assuming API returns { data: [...], pagination: {...} }
+      setEscrows(res.data || []);
+      setEscrowPagination(res.pagination || { totalPages: 1, currentPage: page });
+      setEscrowPage(page);
+    } catch (error) {
+      console.error('Error loading escrow:', error);
+      toast.error('Gagal memuat transaksi escrow');
+    } finally {
+      setLoadingEscrow(false);
+    }
+  };
+
   const loadData = async () => {
     try {
       const [dashboardRes, usersRes, ordersRes] = await Promise.all([
@@ -51,42 +67,6 @@ const AdminDashboard = () => {
       toast.error('Gagal memuat data');
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Load escrow with pagination
-  const loadEscrow = async (page = 1) => {
-    setLoadingEscrow(true);
-    try {
-      const limit = 50;
-      const skip = (page - 1) * limit;
-      const escrowRes = await getEscrowList(limit, skip);
-      
-      // Handle response format
-      let escrowData = [];
-      let pagination = { totalPages: 1, totalDocs: 0 };
-      
-      if (Array.isArray(escrowRes.data)) {
-        // Old format (array only)
-        escrowData = escrowRes.data;
-      } else if (escrowRes.data?.data) {
-        // New format with pagination
-        escrowData = escrowRes.data.data;
-        pagination = escrowRes.data.pagination || { totalPages: 1, totalDocs: 0 };
-      }
-      
-      setEscrows(escrowData);
-      setEscrowPage(page);
-      setEscrowPagination({
-        totalPages: Math.ceil((pagination.totalDocs || escrowData.length) / limit),
-        totalDocs: pagination.totalDocs || escrowData.length
-      });
-    } catch (error) {
-      console.error('Error loading escrow:', error);
-      toast.error('Gagal memuat escrow');
-      setEscrows([]);
-    } finally {
-      setLoadingEscrow(false);
     }
   };
 
@@ -460,7 +440,7 @@ const AdminDashboard = () => {
                                 </button>
                               )}
                             </div>
-                          </td>
+                           </td>
                         </tr>
                       ))}
                     </tbody>
