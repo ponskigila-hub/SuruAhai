@@ -829,20 +829,29 @@ from typing import Optional
 @app.get("/api/admin/escrow")
 def get_escrow_list(
     admin: dict = Depends(require_role(["ADMIN"])),
-    page: int = 1,
-    limit: int = 50
+    limit: int = 50,
+    skip: int = 0
 ):
-    skip = (page - 1) * limit
+    limit = min(limit, 100)
+    skip = max(skip, 0)
+    
+    escrows = list(
+        escrow_collection.find()
+        .sort("created_at", -1)  # Newest first
+        .skip(skip)
+        .limit(limit)  # ← THIS FIX LOADING!
+    )
+    
     total = escrow_collection.count_documents({})
-    cursor = escrow_collection.find().sort("created_at", -1).skip(skip).limit(limit)
-    escrows = [serialize_doc(e) for e in cursor]
+    
     return {
-        "data": escrows,
+        "success": True,
+        "data": [serialize_doc(e) for e in escrows],
         "pagination": {
-            "current_page": page,
-            "page_size": limit,
-            "total_docs": total,
-            "total_pages": (total + limit - 1) // limit
+            "total": total,
+            "limit": limit,
+            "skip": skip,
+            "hasMore": skip + limit < total
         }
     }
 
