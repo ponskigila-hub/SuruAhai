@@ -63,7 +63,7 @@ export const getAllUsers = () => api.get('/api/admin/users');
 export const updateUserStatus = (id, isActive) => api.put(`/api/admin/users/${id}/status?is_active=${isActive}`);
 export const verifyMitra = (id) => api.put(`/api/admin/mitra/${id}/verify`);
 export const getEscrowList = (page = 1, limit = 50) => {
-  return api.get(`/admin/escrow?page=${page}&limit=${limit}`);
+  return api.get(`/api/admin/escrow?page=${page}&limit=${limit}`);
 };
 
 // Seed
