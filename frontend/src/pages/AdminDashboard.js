@@ -34,21 +34,12 @@ const AdminDashboard = () => {
     loadData();
   }, []);
 
-  const loadEscrow = async (page = 1) => {
-    setLoadingEscrow(true);
-    try {
-      const res = await getEscrowList(page, 50);
-      // Assuming API returns { data: [...], pagination: {...} }
-      setEscrows(res.data || []);
-      setEscrowPagination(res.pagination || { totalPages: 1, currentPage: page });
-      setEscrowPage(page);
-    } catch (error) {
-      console.error('Error loading escrow:', error);
-      toast.error('Gagal memuat transaksi escrow');
-    } finally {
-      setLoadingEscrow(false);
-    }
-  };
+  const escrowRes = await getEscrowList();
+  // Handle new response format with pagination
+  const escrowData = Array.isArray(escrowRes.data) 
+    ? escrowRes.data 
+    : escrowRes.data?.data || [];
+  setEscrows(escrowData);
 
   const loadData = async () => {
     try {
