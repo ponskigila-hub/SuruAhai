@@ -30,10 +30,7 @@ const AdminDashboard = () => {
   const [escrowPagination, setEscrowPagination] = useState({ totalPages: 1, totalDocs: 0 });
   const [loadingEscrow, setLoadingEscrow] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
+  // Define loadEscrow FIRST so it can be used in loadData
   const loadEscrow = async (page = 1) => {
     setLoadingEscrow(true);
     try {
@@ -67,6 +64,11 @@ const AdminDashboard = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleToggleUserStatus = async (userId, currentStatus) => {
     try {
