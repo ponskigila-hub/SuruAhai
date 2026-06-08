@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Home, Users, Briefcase, DollarSign, AlertTriangle, LogOut,
   Menu, X, TrendingUp, ShoppingBag, Wallet, CheckCircle,
-  Search, Shield, Ban, ChevronLeft, ChevronRight
+  Search, Shield, Ban
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -24,39 +24,23 @@ const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState('all');
-  
-  // Pagination state for escrow
-  const [escrowPage, setEscrowPage] = useState(1);
-  const [escrowPagination, setEscrowPagination] = useState({ totalPages: 1, totalDocs: 0 });
-  const [loadingEscrow, setLoadingEscrow] = useState(false);
 
-  // Define loadEscrow FIRST so it can be used in loadData
-  const loadEscrow = async (page = 1) => {
-    setLoadingEscrow(true);
-    try {
-      const res = await getEscrowList(page, 50);
-      setEscrows(res.data || []);
-      setEscrowPagination(res.pagination || { totalPages: 1, currentPage: page });
-      setEscrowPage(page);
-    } catch (error) {
-      console.error('Error loading escrow:', error);
-      toast.error('Gagal memuat transaksi escrow');
-    } finally {
-      setLoadingEscrow(false);
-    }
-  };
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const loadData = async () => {
     try {
-      const [dashboardRes, usersRes, ordersRes] = await Promise.all([
+      const [dashboardRes, usersRes, escrowRes, ordersRes] = await Promise.all([
         getAdminDashboard(),
         getAllUsers(),
+        getEscrowList(),
         getOrders()
       ]);
       setDashboard(dashboardRes.data);
       setUsers(usersRes.data);
+      setEscrows(escrowRes.data);
       setOrders(ordersRes.data);
-      await loadEscrow(1);
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Gagal memuat data');
@@ -64,11 +48,6 @@ const AdminDashboard = () => {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const handleToggleUserStatus = async (userId, currentStatus) => {
     try {
@@ -440,7 +419,7 @@ const AdminDashboard = () => {
                                 </button>
                               )}
                             </div>
-                           </td>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -559,7 +538,7 @@ const AdminDashboard = () => {
             </div>
           )}
 
-          {/* Financial Tab - with pagination for escrow */}
+          {/* Financial Tab */}
           {activeTab === 'financial' && (
             <div className="space-y-6 animate-fade-in">
               <h1 className="font-heading text-2xl font-bold text-secondary">Keuangan</h1>
@@ -587,7 +566,7 @@ const AdminDashboard = () => {
                 </div>
               </div>
 
-              {/* Escrow Transactions with Pagination */}
+              {/* Escrow Transactions */}
               <div>
                 <h2 className="font-heading font-semibold text-lg text-secondary mb-4">
                   Escrow Transactions
@@ -604,34 +583,26 @@ const AdminDashboard = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {loadingEscrow ? (
-                          <tr>
-                            <td colSpan="4" className="text-center py-8">
-                              <div className="spinner mx-auto"></div>
+                        {escrows.length > 0 ? escrows.map(escrow => (
+                          <tr key={escrow.id}>
+                            <td className="font-mono text-sm">{escrow.order_id?.slice(-8)}</td>
+                            <td className="font-medium">
+                              Rp {escrow.amount?.toLocaleString('id-ID')}
+                            </td>
+                            <td>
+                              <span className={`badge ${
+                                escrow.status === 'HOLD' ? 'badge-warning' :
+                                escrow.status === 'RELEASED' ? 'badge-success' :
+                                'badge-error'
+                              }`}>
+                                {escrow.status}
+                              </span>
+                            </td>
+                            <td className="text-slate-500 text-sm">
+                              {new Date(escrow.created_at).toLocaleDateString('id-ID')}
                             </td>
                           </tr>
-                        ) : escrows.length > 0 ? (
-                          escrows.map(escrow => (
-                            <tr key={escrow.id}>
-                              <td className="font-mono text-sm">{escrow.order_id?.slice(-8)}</td>
-                              <td className="font-medium">
-                                Rp {escrow.amount?.toLocaleString('id-ID')}
-                              </td>
-                              <td>
-                                <span className={`badge ${
-                                  escrow.status === 'HOLD' ? 'badge-warning' :
-                                  escrow.status === 'RELEASED' ? 'badge-success' :
-                                  'badge-error'
-                                }`}>
-                                  {escrow.status}
-                                </span>
-                              </td>
-                              <td className="text-slate-500 text-sm">
-                                {new Date(escrow.created_at).toLocaleDateString('id-ID')}
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
+                        )) : (
                           <tr>
                             <td colSpan="4" className="text-center text-slate-500 py-8">
                               Belum ada transaksi escrow
@@ -641,29 +612,6 @@ const AdminDashboard = () => {
                       </tbody>
                     </table>
                   </div>
-                  
-                  {/* Pagination Controls */}
-                  {!loadingEscrow && escrowPagination.totalPages > 1 && (
-                    <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100">
-                      <button
-                        onClick={() => loadEscrow(escrowPage - 1)}
-                        disabled={escrowPage === 1}
-                        className="p-2 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <ChevronLeft className="w-5 h-5" />
-                      </button>
-                      <span className="text-sm text-slate-600">
-                        Halaman {escrowPage} dari {escrowPagination.totalPages}
-                      </span>
-                      <button
-                        onClick={() => loadEscrow(escrowPage + 1)}
-                        disabled={escrowPage === escrowPagination.totalPages}
-                        className="p-2 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <ChevronRight className="w-5 h-5" />
-                      </button>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
