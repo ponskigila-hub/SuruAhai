@@ -27,26 +27,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database connection with caching for serverless (Vercel)
+# Database
 MONGO_URL = os.environ.get("MONGO_URL")
 DB_NAME = os.environ.get("DB_NAME", "suruahai")
-
-_mongo_client = None
-
-def get_db():
-    global _mongo_client
-    if _mongo_client is None:
-        _mongo_client = MongoClient(
-            MONGO_URL,
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=5000,
-            socketTimeoutMS=5000
-        )
-        # Opsional: verifikasi koneksi
-        _mongo_client.admin.command('ping')
-    return _mongo_client[DB_NAME]
-
-db = get_db()
+client = MongoClient(MONGO_URL)
+db = client[DB_NAME]
 
 # Collections
 users_collection = db["users"]
@@ -818,27 +803,10 @@ def verify_mitra(mitra_id: str, admin: dict = Depends(require_role(["ADMIN"]))):
     )
     return {"message": "Mitra verified"}
 
-from typing import Optional
-
 @app.get("/api/admin/escrow")
-def get_escrow_list(
-    admin: dict = Depends(require_role(["ADMIN"])),
-    page: int = 1,
-    limit: int = 50
-):
-    skip = (page - 1) * limit
-    total = escrow_collection.count_documents({})
-    cursor = escrow_collection.find().sort("created_at", -1).skip(skip).limit(limit)
-    escrows = [serialize_doc(e) for e in cursor]
-    return {
-        "data": escrows,
-        "pagination": {
-            "current_page": page,
-            "page_size": limit,
-            "total_docs": total,
-            "total_pages": (total + limit - 1) // limit
-        }
-    }
+def get_escrow_list(admin: dict = Depends(require_role(["ADMIN"]))):
+    escrows = list(escrow_collection.find())
+    return [serialize_doc(e) for e in escrows]
 
 # Notifications
 @app.get("/api/notifications")
