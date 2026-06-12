@@ -12,6 +12,7 @@ from bson import ObjectId
 import os
 import logging
 import threading
+import certifi
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -30,7 +31,7 @@ app.add_middleware(
 # Database
 MONGO_URL = os.environ.get("MONGO_URL")
 DB_NAME = os.environ.get("DB_NAME", "suruahai")
-client = MongoClient(MONGO_URL)
+client = MongoClient(MONGO_URL, tlsCAFile=certifi.where())
 db = client[DB_NAME]
 
 # Collections
