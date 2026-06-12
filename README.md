@@ -379,9 +379,10 @@ Mohon masukkan screenshot berikut ke folder `docs/screenshots/`:
 
 #### Authentication
 - [ ] Register page
-![Register page](./docs/auth/Register_page.png)
+![Register page](./docs/screenshots/auth/Register_page.png)
 - [ ] Login page
-- [ ] Forgot password (jika ada)
+![Login page](./docs/screenshots/auth/Login_page.png)
+
 
 #### User Dashboard
 - [ ] Home / Browse services
