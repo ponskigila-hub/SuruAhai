@@ -379,6 +379,7 @@ Mohon masukkan screenshot berikut ke folder `docs/screenshots/`:
 
 #### Authentication
 - [ ] Register page
+![Register page](./docs/auth/Register_page.png)
 - [ ] Login page
 - [ ] Forgot password (jika ada)
 
@@ -480,6 +481,5 @@ Proyek ini menggunakan **[MIT License](LICENSE)** / **[Closed Source]**
 
 <p align="center">
   <a href="https://suruahai.vercel.app">Live Demo</a> • 
-  <a href="https://github.com/your-org/SuruAhai">GitHub</a> • 
-  <a href="mailto:contact@suruahai.com">Contact</a>
+  <a href="[https://github.com//SuruAhai](https://github.com/FireClow/SuruAhai)">GitHub</a> • 
 </p>
