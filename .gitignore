@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build outputs and caches
+build/
+dist/
+.cache/
+
+# Environment files
+*.env
+*.env.*
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Accidental venv layout under backend/ (Windows)
+backend/Lib/
+backend/Scripts/
+backend/pyvenv.cfg
