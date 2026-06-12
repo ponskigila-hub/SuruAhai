@@ -84,7 +84,7 @@ Platform ini menyediakan ekosistem lengkap untuk booking jasa, pembayaran aman d
 ┌─────────────────────────────────────────────────────────┐
 │                    Frontend (Vercel)                    │
 │              React + Vite + Tailwind CSS               │
-│              https://suruahai.vercel.app                │
+│                           │
 └────────────────────────┬────────────────────────────────┘
                          │
                     HTTP/CORS
@@ -92,7 +92,7 @@ Platform ini menyediakan ekosistem lengkap untuk booking jasa, pembayaran aman d
 ┌────────────────────────▼────────────────────────────────┐
 │                 Backend (Replit)                        │
 │          FastAPI + PyMongo + JWT                        │
-│    https://suruahai-backend.replit.dev (example)       │
+│        │
 └────────────────────────┬────────────────────────────────┘
                          │
                     PyMongo Driver
@@ -100,7 +100,7 @@ Platform ini menyediakan ekosistem lengkap untuk booking jasa, pembayaran aman d
 ┌────────────────────────▼────────────────────────────────┐
 │              Database (MongoDB Atlas)                   │
 │        Hosted cloud instance atau local MongoDB         │
-│         mongodb+srv://user:pass@cluster.mongodb.net     │
+│            │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -143,53 +143,9 @@ SuruAhai/
 - **Git** & **VS Code** (optional)
 
 ### Deployment
-- **Vercel** account (gratis untuk hobby)
-- **Replit** account (gratis tier tersedia)
-- **MongoDB Atlas** account (free tier 512MB)
-
----
-
-## 🔧 Konfigurasi Environment
-
-### Backend (.env)
-
-Buat file `backend/.env`:
-
-```env
-# Database
-MONGO_URL=mongodb+srv://username:password@cluster.mongodb.net/suruahai?retryWrites=true&w=majority
-DB_NAME=suruahai
-
-# JWT
-JWT_SECRET=your-super-secret-key-change-in-production
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=1440
-
-# Server
-HOST=0.0.0.0
-PORT=8001
-
-# Optional: CORS
-ALLOWED_ORIGINS=["http://localhost:3000","https://suruahai.vercel.app"]
-```
-
-**Catatan Penting:**
-- Ganti `MONGO_URL` dengan koneksi string MongoDB Anda
-- Untuk production, gunakan MongoDB Atlas (secure credentials)
-- `JWT_SECRET` minimal 32 karakter untuk production
-
-### Frontend (.env)
-
-Buat file `frontend/.env`:
-
-```env
-REACT_APP_BACKEND_URL=http://localhost:8001
-```
-
-Untuk production di Vercel:
-```env
-REACT_APP_BACKEND_URL=https://your-replit-backend-url.replit.dev
-```
+- **Vercel** account 
+- **Replit** account 
+- **MongoDB Atlas** account 
 
 ---
 
@@ -496,9 +452,12 @@ Jika ada pertanyaan atau issue:
 3. **Discord/Slack** - [Link jika ada]
 
 ### Team
-- Developer 1 - [Name]
-- Developer 2 - [Name]
-- Developer 3 - [Name]
+Feel free to open issues or contact me if you need help setting it up!
+1. BRANDON ALEXANDER - 2802465484
+2. GIOVAN PRILSKY WONGSO - 2802463812
+3. KENJI LAWRENCE - 2802463440
+4. NICHOLAS DRIYADIS TJOE - 2802461321
+5. YOEL ABRAHAM UKTOLSEJA - 2802463775
 
 ---
 
@@ -511,9 +470,7 @@ Proyek ini menggunakan **[MIT License](LICENSE)** / **[Closed Source]**
 ## 📚 Additional Documentation
 
 - [`BACKEND_Run.md`](./BACKEND_Run.md) - Detailed backend setup
-- [`docs/API.md`](./docs/API.md) - Full API reference
 - [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) - Deployment guide
-- [`docs/CONTRIBUTING.md`](./docs/CONTRIBUTING.md) - Contributing guidelines
 
 ---
 
