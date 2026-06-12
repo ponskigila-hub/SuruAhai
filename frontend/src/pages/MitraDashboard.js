@@ -10,6 +10,8 @@ import { getMitraDashboard, getOrders, updateOrderStatus, toggleMitraOnline, get
 import { toast } from 'sonner';
 
 const statusColors = {
+  NEGOTIATING: 'badge-info',
+  AWAITING_PAYMENT: 'badge-warning',
   PENDING: 'badge-warning',
   CONFIRMED: 'badge-info',
   IN_PROGRESS: 'badge-info',
@@ -19,6 +21,8 @@ const statusColors = {
 };
 
 const statusLabels = {
+  NEGOTIATING: 'Negosiasi',
+  AWAITING_PAYMENT: 'Menunggu pembayaran',
   PENDING: 'Menunggu',
   CONFIRMED: 'Dikonfirmasi',
   IN_PROGRESS: 'Dikerjakan',
@@ -200,9 +204,11 @@ const MitraDashboard = () => {
     }
   };
 
-  const pendingOrders = orders.filter(o => o.status === 'PENDING');
+  const pendingOrders = orders.filter(o =>
+    ['NEGOTIATING', 'AWAITING_PAYMENT', 'PENDING'].includes(o.status)
+  );
   const activeOrders = orders.filter(o =>
-    ['CONFIRMED', 'IN_PROGRESS', 'AWAITING_USER_CONFIRMATION'].includes(o.status)
+    ['NEGOTIATING', 'AWAITING_PAYMENT', 'CONFIRMED', 'IN_PROGRESS', 'AWAITING_USER_CONFIRMATION'].includes(o.status)
   );
 
   const menuItems = [

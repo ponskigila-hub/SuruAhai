@@ -43,6 +43,7 @@ escrow_collection = db["escrow"]
 reviews_collection = db["reviews"]
 notifications_collection = db["notifications"]
 wallet_transactions_collection = db["wallet_transactions"]
+order_messages_collection = db["order_messages"]
 
 _seed_lock = threading.Lock()
 
@@ -62,6 +63,8 @@ class UserRole:
     ADMIN = "ADMIN"
 
 class OrderStatus:
+    NEGOTIATING = "NEGOTIATING"
+    AWAITING_PAYMENT = "AWAITING_PAYMENT"
     PENDING = "PENDING"
     CONFIRMED = "CONFIRMED"
     IN_PROGRESS = "IN_PROGRESS"
@@ -73,6 +76,12 @@ class EscrowStatus:
     HOLD = "HOLD"
     RELEASED = "RELEASED"
     REFUNDED = "REFUNDED"
+
+class MessageType:
+    TEXT = "TEXT"
+    OFFER = "OFFER"
+    FINAL_PRICE = "FINAL_PRICE"
+    SYSTEM = "SYSTEM"
 
 # Pydantic Models
 class UserRegister(BaseModel):
@@ -114,6 +123,11 @@ class OrderCreate(BaseModel):
     scheduled_time: str
     address: str
     notes: Optional[str] = None
+
+class OrderMessageCreate(BaseModel):
+    message: Optional[str] = None
+    message_type: str = Field(default=MessageType.TEXT)
+    offer_amount: Optional[float] = Field(default=None, gt=0)
 
 class ReviewCreate(BaseModel):
     order_id: str
@@ -161,6 +175,23 @@ def record_wallet_transaction(user_id: str, amount: float, tx_type: str, descrip
         "order_id": order_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
+
+def get_participant_order(order_id: str, user: dict):
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order id")
+
+    order = orders_collection.find_one({"_id": ObjectId(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if user["role"] == UserRole.USER and order["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if user["role"] == UserRole.MITRA and order["mitra_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if user["role"] not in (UserRole.USER, UserRole.MITRA):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return order
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
@@ -441,7 +472,10 @@ def get_mitra_list(category: Optional[str] = None, is_online: Optional[bool] = N
 def get_mitra_dashboard(user: dict = Depends(require_role(["MITRA"]))):
     total_orders = orders_collection.count_documents({"mitra_id": user["id"]})
     completed_orders = orders_collection.count_documents({"mitra_id": user["id"], "status": "COMPLETED"})
-    pending_orders = orders_collection.count_documents({"mitra_id": user["id"], "status": {"$in": ["PENDING", "CONFIRMED"]}})
+    pending_orders = orders_collection.count_documents({
+        "mitra_id": user["id"],
+        "status": {"$in": ["NEGOTIATING", "AWAITING_PAYMENT", "PENDING", "CONFIRMED"]},
+    })
     
     # Calculate earnings
     completed = list(orders_collection.find({"mitra_id": user["id"], "status": "COMPLETED"}))
@@ -516,13 +550,6 @@ def create_order(data: OrderCreate, user: dict = Depends(require_role(["USER"]))
     if total_amount <= 0:
         raise HTTPException(status_code=400, detail="Harga layanan tidak valid")
 
-    user_id = user["id"]
-    wallets_collection.update_one(
-        {"user_id": user_id},
-        {"$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat(), "balance": 0}},
-        upsert=True,
-    )
-
     order_data = {
         "user_id": user["id"],
         "user_name": user["name"],
@@ -535,8 +562,10 @@ def create_order(data: OrderCreate, user: dict = Depends(require_role(["USER"]))
         "scheduled_time": data.scheduled_time,
         "address": data.address,
         "notes": data.notes,
+        "initial_price": total_amount,
+        "final_price": None,
         "total_amount": total_amount,
-        "status": OrderStatus.PENDING,
+        "status": OrderStatus.NEGOTIATING,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
@@ -544,36 +573,7 @@ def create_order(data: OrderCreate, user: dict = Depends(require_role(["USER"]))
     result = orders_collection.insert_one(order_data)
     order_id = str(result.inserted_id)
 
-    escrow_collection.insert_one({
-        "order_id": order_id,
-        "user_id": user["id"],
-        "mitra_id": data.mitra_id,
-        "amount": total_amount,
-        "status": EscrowStatus.HOLD,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-
-    debit = wallets_collection.update_one(
-        {"user_id": user_id, "balance": {"$gte": total_amount}},
-        {"$inc": {"balance": -total_amount}},
-    )
-    if debit.modified_count == 0:
-        escrow_collection.delete_one({"order_id": order_id})
-        orders_collection.delete_one({"_id": ObjectId(order_id)})
-        raise HTTPException(
-            status_code=400,
-            detail="Saldo wallet tidak mencukupi untuk melakukan pemesanan. Silakan top up terlebih dahulu.",
-        )
-
-    record_wallet_transaction(
-        user_id=user_id,
-        amount=total_amount,
-        tx_type="debit",
-        description=f"Pembayaran pesanan — {service['name']}",
-        order_id=order_id,
-    )
-
-    return {"id": order_id, "message": "Order created", "status": "PENDING"}
+    return {"id": order_id, "message": "Order created", "status": OrderStatus.NEGOTIATING}
 
 @app.get("/api/orders")
 def get_orders(user: dict = Depends(get_current_user)):
@@ -600,6 +600,131 @@ def get_order(order_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Access denied")
     
     return serialize_doc(order)
+
+@app.get("/api/orders/{order_id}/messages")
+def get_order_messages(order_id: str, user: dict = Depends(get_current_user)):
+    order = get_participant_order(order_id, user)
+    messages = list(
+        order_messages_collection
+        .find({"order_id": str(order["_id"])})
+        .sort("created_at", 1)
+    )
+    return [serialize_doc(message) for message in messages]
+
+@app.post("/api/orders/{order_id}/messages")
+def send_order_message(order_id: str, data: OrderMessageCreate, user: dict = Depends(get_current_user)):
+    order = get_participant_order(order_id, user)
+    message_type = (data.message_type or MessageType.TEXT).upper()
+    if message_type not in (MessageType.TEXT, MessageType.OFFER, MessageType.FINAL_PRICE):
+        raise HTTPException(status_code=400, detail="Invalid message type")
+
+    current_status = order["status"]
+    if current_status in (OrderStatus.COMPLETED, OrderStatus.CANCELLED):
+        raise HTTPException(status_code=400, detail="Pesanan sudah tidak dapat dinegosiasikan")
+
+    message = (data.message or "").strip()
+    offer_amount = float(data.offer_amount) if data.offer_amount is not None else None
+
+    if message_type == MessageType.TEXT:
+        if not message:
+            raise HTTPException(status_code=400, detail="Pesan tidak boleh kosong")
+        offer_amount = None
+    elif message_type == MessageType.OFFER:
+        if user["role"] != UserRole.USER:
+            raise HTTPException(status_code=403, detail="Hanya pengguna yang dapat mengirim penawaran")
+        if current_status != OrderStatus.NEGOTIATING:
+            raise HTTPException(status_code=400, detail="Penawaran hanya dapat dikirim saat negosiasi")
+        if offer_amount is None:
+            raise HTTPException(status_code=400, detail="Nominal penawaran wajib diisi")
+        message = message or "Penawaran harga"
+    elif message_type == MessageType.FINAL_PRICE:
+        if user["role"] != UserRole.MITRA:
+            raise HTTPException(status_code=403, detail="Hanya mitra yang dapat menentukan harga final")
+        if current_status not in (OrderStatus.NEGOTIATING, OrderStatus.AWAITING_PAYMENT):
+            raise HTTPException(status_code=400, detail="Harga final hanya dapat ditentukan sebelum pembayaran")
+        if offer_amount is None:
+            raise HTTPException(status_code=400, detail="Harga final wajib diisi")
+        message = message or "Harga final disepakati"
+        orders_collection.update_one(
+            {"_id": order["_id"]},
+            {
+                "$set": {
+                    "final_price": offer_amount,
+                    "total_amount": offer_amount,
+                    "status": OrderStatus.AWAITING_PAYMENT,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+        )
+
+    message_doc = {
+        "order_id": str(order["_id"]),
+        "sender_id": user["id"],
+        "sender_name": user["name"],
+        "sender_role": user["role"],
+        "message": message,
+        "message_type": message_type,
+        "offer_amount": offer_amount,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    result = order_messages_collection.insert_one(message_doc)
+    message_doc["_id"] = result.inserted_id
+    return serialize_doc(message_doc)
+
+@app.post("/api/orders/{order_id}/pay")
+def pay_order(order_id: str, user: dict = Depends(require_role([UserRole.USER]))):
+    order = get_participant_order(order_id, user)
+    if order["status"] != OrderStatus.AWAITING_PAYMENT:
+        raise HTTPException(status_code=400, detail="Pesanan belum siap dibayar")
+
+    amount = float(order.get("final_price") or order.get("total_amount") or 0)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Total pembayaran tidak valid")
+
+    wallets_collection.update_one(
+        {"user_id": user["id"]},
+        {"$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat(), "balance": 0}},
+        upsert=True,
+    )
+    debit = wallets_collection.update_one(
+        {"user_id": user["id"], "balance": {"$gte": amount}},
+        {"$inc": {"balance": -amount}},
+    )
+    if debit.modified_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Saldo wallet tidak mencukupi untuk melakukan pembayaran. Silakan top up terlebih dahulu.",
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    escrow_collection.insert_one({
+        "order_id": str(order["_id"]),
+        "user_id": user["id"],
+        "mitra_id": order["mitra_id"],
+        "amount": amount,
+        "status": EscrowStatus.HOLD,
+        "created_at": now,
+    })
+    record_wallet_transaction(
+        user_id=user["id"],
+        amount=amount,
+        tx_type="debit",
+        description=f"Pembayaran pesanan - {order['service_name']}",
+        order_id=str(order["_id"]),
+    )
+    orders_collection.update_one(
+        {"_id": order["_id"]},
+        {
+            "$set": {
+                "final_price": amount,
+                "total_amount": amount,
+                "status": OrderStatus.PENDING,
+                "paid_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+    return {"message": "Pembayaran berhasil", "status": OrderStatus.PENDING, "amount": amount}
 
 @app.put("/api/orders/{order_id}/status")
 def update_order_status(order_id: str, status: str, user: dict = Depends(get_current_user)):
@@ -630,10 +755,15 @@ def update_order_status(order_id: str, status: str, user: dict = Depends(get_cur
         return {"message": f"Order status is already {status}"}
 
     if status == "CANCELLED":
-        if current != "PENDING":
+        cancellable_statuses = [
+            OrderStatus.NEGOTIATING,
+            OrderStatus.AWAITING_PAYMENT,
+            OrderStatus.PENDING,
+        ]
+        if current not in cancellable_statuses:
             raise HTTPException(
                 status_code=400,
-                detail="Pesanan hanya bisa dibatalkan saat menunggu konfirmasi mitra",
+                detail="Pesanan tidak dapat dibatalkan pada status ini",
             )
     elif status == "CONFIRMED":
         if role != "MITRA" or current != "PENDING":

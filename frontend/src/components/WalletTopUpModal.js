@@ -17,13 +17,15 @@ const parseTopUpAmount = (topupInput) => {
  * @param {() => void} onClose
  * @param {() => void | Promise<void>} onSuccess – dipanggil setelah top-up API sukses (mis. refresh saldo)
  */
-const WalletTopUpModal = ({ open, onClose, onSuccess }) => {
+const WalletTopUpModal = ({ open, onClose, onSuccess, initialAmount }) => {
   const [topupInput, setTopupInput] = useState('');
   const [topupSubmitting, setTopupSubmitting] = useState(false);
 
   useEffect(() => {
-    if (open) setTopupInput('');
-  }, [open]);
+    if (!open) return;
+    const suggested = Number(initialAmount || 0);
+    setTopupInput(suggested > 0 ? String(Math.ceil(suggested)) : '');
+  }, [open, initialAmount]);
 
   const close = () => {
     if (!topupSubmitting) onClose();
@@ -83,6 +85,12 @@ const WalletTopUpModal = ({ open, onClose, onSuccess }) => {
           Nominal Rp {MIN_TOPUP_IDR.toLocaleString('id-ID')} – Rp {MAX_TOPUP_IDR.toLocaleString('id-ID')} (demo,
           tanpa payment gateway).
         </p>
+
+        {Number(initialAmount || 0) > 0 && (
+          <p className="mt-3 rounded-xl bg-primary/10 px-4 py-3 text-sm text-primary">
+            Nominal disarankan: Rp {Math.ceil(initialAmount).toLocaleString('id-ID')}
+          </p>
+        )}
 
         <div className="mt-4 flex flex-wrap gap-2">
           {TOPUP_PRESETS.map((nom) => (

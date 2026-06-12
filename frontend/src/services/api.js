@@ -46,6 +46,9 @@ export const createOrder = (data) => api.post('/api/orders', data);
 export const getOrders = () => api.get('/api/orders');
 export const getOrder = (id) => api.get(`/api/orders/${id}`);
 export const updateOrderStatus = (id, status) => api.put(`/api/orders/${id}/status?status=${status}`);
+export const getOrderMessages = (id) => api.get(`/api/orders/${id}/messages`);
+export const sendOrderMessage = (id, data) => api.post(`/api/orders/${id}/messages`, data);
+export const payOrder = (id) => api.post(`/api/orders/${id}/pay`);
 
 // Reviews
 export const createReview = (data) => api.post('/api/reviews', data);

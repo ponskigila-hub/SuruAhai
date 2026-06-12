@@ -20,6 +20,8 @@ const categoryIcons = {
 };
 
 const statusColors = {
+  NEGOTIATING: 'badge-info',
+  AWAITING_PAYMENT: 'badge-warning',
   PENDING: 'badge-warning',
   CONFIRMED: 'badge-info',
   IN_PROGRESS: 'badge-info',
@@ -29,6 +31,8 @@ const statusColors = {
 };
 
 const statusLabels = {
+  NEGOTIATING: 'Negosiasi',
+  AWAITING_PAYMENT: 'Menunggu pembayaran',
   PENDING: 'Menunggu',
   CONFIRMED: 'Dikonfirmasi',
   IN_PROGRESS: 'Sedang Dikerjakan',
