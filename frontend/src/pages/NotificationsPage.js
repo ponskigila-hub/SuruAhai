@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { ArrowLeft, Bell, Sparkles, Loader2 } from 'lucide-react';
-import { getNotifications } from '../services/api';
+import { getNotifications, markAllNotificationsRead } from '../services/api';
 
 const NotificationsPage = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const homePath = user?.role === 'MITRA' ? '/mitra' : '/dashboard';
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -16,6 +19,7 @@ const NotificationsPage = () => {
       const res = await getNotifications();
       const data = res.data;
       setItems(Array.isArray(data) ? data : []);
+      markAllNotificationsRead().catch(() => {});
     } catch (e) {
       setError('Gagal memuat notifikasi. Coba lagi.');
       setItems([]);
@@ -59,7 +63,7 @@ const NotificationsPage = () => {
         <div className="max-w-lg mx-auto px-4 flex items-center justify-between h-14">
           <button
             type="button"
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate(homePath)}
             className="p-2 -ml-2 rounded-lg hover:bg-slate-100 text-slate-600"
             aria-label="Kembali ke beranda"
             data-testid="notifications-back"
@@ -105,7 +109,7 @@ const NotificationsPage = () => {
                 <p className="text-sm text-slate-500 mb-6">
                   Saat ada update pesanan atau info penting, akan muncul di sini. Anda bisa kembali kapan saja.
                 </p>
-                <button type="button" onClick={() => navigate('/dashboard')} className="btn-primary">
+                <button type="button" onClick={() => navigate(homePath)} className="btn-primary">
                   Ke beranda
                 </button>
               </div>

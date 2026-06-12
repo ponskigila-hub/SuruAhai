@@ -20,6 +20,7 @@ const categoryIcons = {
 };
 
 const statusColors = {
+  OPEN: 'badge-info',
   NEGOTIATING: 'badge-info',
   AWAITING_PAYMENT: 'badge-warning',
   PENDING: 'badge-warning',
@@ -31,6 +32,7 @@ const statusColors = {
 };
 
 const statusLabels = {
+  OPEN: 'Memilih Mitra',
   NEGOTIATING: 'Negosiasi',
   AWAITING_PAYMENT: 'Menunggu pembayaran',
   PENDING: 'Menunggu',
@@ -60,6 +62,15 @@ const UserDashboard = () => {
 
   useEffect(() => {
     loadData();
+    const intervalId = window.setInterval(async () => {
+      try {
+        const notifRes = await getNotifications();
+        setNotifications(Array.isArray(notifRes.data) ? notifRes.data : []);
+      } catch {
+        //
+      }
+    }, 30000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
   const loadData = async () => {
@@ -365,13 +376,13 @@ const UserDashboard = () => {
                   <div 
                     key={order.id} 
                     className="card p-4 cursor-pointer hover:shadow-md transition-shadow"
-                    onClick={() => navigate(`/orders/${order.id}`)}
+                    onClick={() => navigate(order.status === 'OPEN' ? `/orders/${order.id}/choose-mitra` : `/orders/${order.id}`)}
                     data-testid={`order-card-${order.id}`}
                   >
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <p className="font-medium text-secondary">{order.service_name}</p>
-                        <p className="text-sm text-slate-500">{order.mitra_name}</p>
+                        <p className="text-sm text-slate-500">{order.mitra_name || 'Belum memilih mitra'}</p>
                       </div>
                       <span className={`badge ${statusColors[order.status]}`}>
                         {statusLabels[order.status]}

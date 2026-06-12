@@ -1,24 +1,32 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { 
+import {
   ArrowLeft, MapPin, Calendar, Clock, Phone, Star,
-  CheckCircle, AlertCircle, XCircle, MessageCircle, Wallet
+  CheckCircle, AlertCircle, XCircle, MessageCircle, Wallet, Image as ImageIcon, Send, Tag
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import {
   getOrder,
   updateOrderStatus,
-  createReview,
   getMitra,
   getOrderMessages,
   sendOrderMessage,
   payOrder,
-  getWallet
+  getWallet,
+  getOrderOffers,
+  createOffer,
+  acceptOffer,
+  rejectOffer,
+  rateMitra,
+  rateUser,
+  getUserRating,
+  buildOrderWsUrl
 } from '../services/api';
 import WalletTopUpModal, { MIN_TOPUP_IDR } from '../components/WalletTopUpModal';
 import { toast } from 'sonner';
 
 const statusConfig = {
+  OPEN: { color: 'primary', label: 'Mencari Mitra', step: 0 },
   NEGOTIATING: { color: 'primary', label: 'Negosiasi Harga', step: 0 },
   AWAITING_PAYMENT: { color: 'warning', label: 'Menunggu Pembayaran', step: 0 },
   PENDING: { color: 'warning', label: 'Menunggu Konfirmasi', step: 1 },
@@ -30,6 +38,7 @@ const statusConfig = {
 };
 
 const timelineLabels = ['Menunggu', 'Dikonfirmasi', 'Dikerjakan', 'Konfirmasi', 'Selesai'];
+const MAX_IMAGE_BYTES = 2_000_000;
 
 const formatCurrency = (amount) =>
   new Intl.NumberFormat('id-ID', {
@@ -73,7 +82,7 @@ const ConfirmDialog = ({
       />
       <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-100 bg-white p-6 shadow-xl">
         <h2 className="font-heading text-lg font-semibold text-secondary">{title}</h2>
-        <p className="mt-2 text-sm text-slate-600">{description}</p>
+        {description && <p className="mt-2 text-sm text-slate-600">{description}</p>}
         {children}
         <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
           <button
@@ -99,6 +108,19 @@ const ConfirmDialog = ({
   );
 };
 
+const StarRow = ({ label, value, onChange }) => (
+  <div className="flex items-center justify-between gap-3">
+    <span className="text-sm text-slate-600">{label}</span>
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <button key={star} type="button" onClick={() => onChange(star)} className="p-0.5">
+          <Star className={`w-6 h-6 ${star <= value ? 'text-yellow-400 fill-yellow-400' : 'text-slate-300'}`} />
+        </button>
+      ))}
+    </div>
+  </div>
+);
+
 const OrderDetailPage = () => {
   const { orderId } = useParams();
   const navigate = useNavigate();
@@ -106,13 +128,11 @@ const OrderDetailPage = () => {
   const [order, setOrder] = useState(null);
   const [mitra, setMitra] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showReview, setShowReview] = useState(false);
-  const [review, setReview] = useState({ rating: 5, comment: '' });
-  const [submitting, setSubmitting] = useState(false);
   const [messages, setMessages] = useState([]);
+  const [offers, setOffers] = useState([]);
   const [chatText, setChatText] = useState('');
-  const [offerAmount, setOfferAmount] = useState('');
-  const [finalPrice, setFinalPrice] = useState('');
+  const [offerInput, setOfferInput] = useState('');
+  const [showOfferForm, setShowOfferForm] = useState(false);
   const [chatSubmitting, setChatSubmitting] = useState(false);
   const [paying, setPaying] = useState(false);
   const [payConfirmOpen, setPayConfirmOpen] = useState(false);
@@ -120,9 +140,22 @@ const OrderDetailPage = () => {
   const [insufficientOpen, setInsufficientOpen] = useState(false);
   const [topupOpen, setTopupOpen] = useState(false);
   const [walletBalance, setWalletBalance] = useState(null);
+  const [acceptTarget, setAcceptTarget] = useState(null);
+  const [acceptLoading, setAcceptLoading] = useState(false);
+
+  // Ratings
+  const [mitraRating, setMitraRating] = useState({ quality: 5, punctuality: 5, friendliness: 5, professionalism: 5, comment: '' });
+  const [userRating, setUserRating] = useState({ payment: 5, politeness: 5, clarity: 5, communication: 5, comment: '' });
+  const [showMitraRating, setShowMitraRating] = useState(false);
+  const [showUserRating, setShowUserRating] = useState(false);
+  const [ratingSubmitting, setRatingSubmitting] = useState(false);
+  const [customerRating, setCustomerRating] = useState(null);
+
   const chatContainerRef = useRef(null);
+  const fileInputRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const pollingMessagesRef = useRef(false);
+  const wsRef = useRef(null);
 
   const isChatNearBottom = useCallback(() => {
     const el = chatContainerRef.current;
@@ -167,15 +200,26 @@ const OrderDetailPage = () => {
     }
   }, [orderId, mergeMessages]);
 
+  const loadOffers = useCallback(async () => {
+    try {
+      const res = await getOrderOffers(orderId);
+      setOffers(res.data);
+    } catch {
+      //
+    }
+  }, [orderId]);
+
   const loadOrder = useCallback(async () => {
     try {
-      const [response, messagesRes] = await Promise.all([
+      const [response, messagesRes, offersRes] = await Promise.all([
         getOrder(orderId),
-        getOrderMessages(orderId).catch(() => ({ data: [] }))
+        getOrderMessages(orderId).catch(() => ({ data: [] })),
+        getOrderOffers(orderId).catch(() => ({ data: [] }))
       ]);
       setOrder(response.data);
       mergeMessages(messagesRes.data, { stickToBottom: true });
-      
+      setOffers(offersRes.data);
+
       if (response.data.mitra_id) {
         const mitraRes = await getMitra(response.data.mitra_id);
         setMitra(mitraRes.data);
@@ -197,10 +241,50 @@ const OrderDetailPage = () => {
     shouldStickToBottomRef.current = true;
   }, [orderId]);
 
+  // Realtime channel (WebSocket) with polling fallback.
   useEffect(() => {
-    const intervalId = window.setInterval(loadMessages, 2500);
+    let ws;
+    try {
+      ws = new WebSocket(buildOrderWsUrl(orderId));
+      wsRef.current = ws;
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.event === 'message') {
+            mergeMessages([payload.data]);
+          } else if (payload.event === 'offer' || payload.event === 'offer_rejected') {
+            loadOffers();
+            loadMessages();
+          } else if (payload.event === 'status') {
+            loadOrder();
+          }
+        } catch {
+          //
+        }
+      };
+    } catch {
+      //
+    }
+    return () => {
+      if (ws) {
+        ws.onmessage = null;
+        ws.close();
+      }
+      wsRef.current = null;
+    };
+  }, [orderId, mergeMessages, loadOffers, loadMessages, loadOrder]);
+
+  // Polling fallback keeps things in sync if the socket drops.
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      const open = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
+      if (!open) {
+        loadMessages();
+        loadOffers();
+      }
+    }, 3000);
     return () => window.clearInterval(intervalId);
-  }, [loadMessages]);
+  }, [loadMessages, loadOffers]);
 
   useEffect(() => {
     if (!shouldStickToBottomRef.current) return;
@@ -209,6 +293,15 @@ const OrderDetailPage = () => {
       el.scrollTop = el.scrollHeight;
     }
   }, [messages.length]);
+
+  // Mitra can view the customer's (mitra-only) rating once an order exists.
+  useEffect(() => {
+    if (user?.role === 'MITRA' && order?.user_id) {
+      getUserRating(order.user_id)
+        .then((res) => setCustomerRating(res.data))
+        .catch(() => setCustomerRating(null));
+    }
+  }, [user?.role, order?.user_id]);
 
   const handleStatusUpdate = async (nextStatus) => {
     try {
@@ -228,13 +321,9 @@ const OrderDetailPage = () => {
       toast.error('Pesan tidak boleh kosong');
       return;
     }
-
     setChatSubmitting(true);
     try {
-      const response = await sendOrderMessage(orderId, {
-        message: text,
-        message_type: 'TEXT'
-      });
+      const response = await sendOrderMessage(orderId, { message: text, message_type: 'TEXT' });
       setChatText('');
       mergeMessages([response.data], { stickToBottom: true });
     } catch (error) {
@@ -245,23 +334,51 @@ const OrderDetailPage = () => {
     }
   };
 
+  const handleImageSelected = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('File harus berupa gambar');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      toast.error('Ukuran gambar maksimal 2MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      setChatSubmitting(true);
+      try {
+        const response = await sendOrderMessage(orderId, {
+          message_type: 'IMAGE',
+          image_data: reader.result
+        });
+        mergeMessages([response.data], { stickToBottom: true });
+      } catch (error) {
+        const detail = error.response?.data?.detail;
+        toast.error(typeof detail === 'string' ? detail : 'Gagal mengirim gambar');
+      } finally {
+        setChatSubmitting(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSendOffer = async () => {
-    const amount = Number(offerAmount);
+    const amount = Number(offerInput);
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error('Masukkan nominal penawaran yang valid');
       return;
     }
-
     setChatSubmitting(true);
     try {
-      const response = await sendOrderMessage(orderId, {
-        message: chatText.trim(),
-        message_type: 'OFFER',
-        offer_amount: amount
-      });
+      await createOffer(orderId, { amount, message: chatText.trim() || null });
+      setOfferInput('');
       setChatText('');
-      setOfferAmount('');
-      mergeMessages([response.data], { stickToBottom: true });
+      setShowOfferForm(false);
+      await Promise.all([loadOffers(), loadMessages()]);
+      toast.success('Penawaran terkirim');
     } catch (error) {
       const detail = error.response?.data?.detail;
       toast.error(typeof detail === 'string' ? detail : 'Gagal mengirim penawaran');
@@ -270,30 +387,30 @@ const OrderDetailPage = () => {
     }
   };
 
-  const handleSetFinalPrice = async () => {
-    const amount = Number(finalPrice);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error('Masukkan harga final yang valid');
-      return;
-    }
-
-    setChatSubmitting(true);
+  const handleRejectOffer = async (offer) => {
     try {
-      const response = await sendOrderMessage(orderId, {
-        message: chatText.trim(),
-        message_type: 'FINAL_PRICE',
-        offer_amount: amount
-      });
-      setChatText('');
-      setFinalPrice('');
-      mergeMessages([response.data], { stickToBottom: true });
-      toast.success('Harga final dikirim');
+      await rejectOffer(offer.id);
+      await Promise.all([loadOffers(), loadMessages()]);
+      toast.success('Penawaran ditolak');
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Gagal menolak penawaran');
+    }
+  };
+
+  const handleAcceptOffer = async () => {
+    if (!acceptTarget) return;
+    setAcceptLoading(true);
+    try {
+      await acceptOffer(acceptTarget.id);
+      setAcceptTarget(null);
+      toast.success('Penawaran diterima');
       await loadOrder();
     } catch (error) {
       const detail = error.response?.data?.detail;
-      toast.error(typeof detail === 'string' ? detail : 'Gagal menentukan harga final');
+      toast.error(typeof detail === 'string' ? detail : 'Gagal menerima penawaran');
     } finally {
-      setChatSubmitting(false);
+      setAcceptLoading(false);
     }
   };
 
@@ -305,7 +422,6 @@ const OrderDetailPage = () => {
         toast.error('Total pembayaran tidak valid');
         return;
       }
-
       const walletRes = await getWallet();
       const balance = Number(walletRes.data?.balance || 0);
       setWalletBalance(balance);
@@ -314,7 +430,6 @@ const OrderDetailPage = () => {
         setInsufficientOpen(true);
         return;
       }
-
       await payOrder(orderId);
       toast.success('Pembayaran berhasil');
       setPayConfirmOpen(false);
@@ -357,26 +472,33 @@ const OrderDetailPage = () => {
     handleStatusUpdate('COMPLETED');
   };
 
-  const handleReviewSubmit = async () => {
-    if (!review.rating) {
-      toast.error('Mohon berikan rating');
-      return;
-    }
-
-    setSubmitting(true);
+  const handleMitraRatingSubmit = async () => {
+    setRatingSubmitting(true);
     try {
-      await createReview({
-        order_id: orderId,
-        rating: review.rating,
-        comment: review.comment
-      });
-      toast.success('Ulasan berhasil dikirim!');
-      setShowReview(false);
+      await rateMitra({ order_id: orderId, ...mitraRating });
+      toast.success('Terima kasih atas penilaian Anda!');
+      setShowMitraRating(false);
       loadOrder();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Gagal mengirim ulasan');
+      toast.error(error.response?.data?.detail || 'Gagal mengirim penilaian');
     } finally {
-      setSubmitting(false);
+      setRatingSubmitting(false);
+    }
+  };
+
+  const handleUserRatingSubmit = async () => {
+    setRatingSubmitting(true);
+    try {
+      await rateUser({ order_id: orderId, ...userRating });
+      toast.success('Penilaian pelanggan terkirim');
+      setShowUserRating(false);
+      if (order?.user_id) {
+        getUserRating(order.user_id).then((res) => setCustomerRating(res.data)).catch(() => {});
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Gagal mengirim penilaian');
+    } finally {
+      setRatingSubmitting(false);
     }
   };
 
@@ -396,26 +518,20 @@ const OrderDetailPage = () => {
     );
   }
 
-  const status = statusConfig[order.status] || {
-    color: 'info',
-    label: order.status,
-    step: 0
-  };
-  const canChat = !['COMPLETED', 'CANCELLED'].includes(order.status);
-  const canUserOffer = user?.role === 'USER' && order.status === 'NEGOTIATING';
-  const canMitraSetFinal =
-    user?.role === 'MITRA' && ['NEGOTIATING', 'AWAITING_PAYMENT'].includes(order.status);
+  const status = statusConfig[order.status] || { color: 'info', label: order.status, step: 0 };
+  const isNegotiating = order.status === 'NEGOTIATING' && !order.negotiation_locked;
+  const canChat = isNegotiating;
+  const activeOffer = offers.find((o) => o.status === 'PENDING') || null;
   const agreedAmount = Number(order.final_price || order.total_amount || 0);
   const walletShortage = walletBalance === null ? 0 : Math.max(0, agreedAmount - walletBalance);
   const suggestedTopupAmount = Math.max(walletShortage, MIN_TOPUP_IDR);
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="sticky top-0 z-40 glass border-b border-slate-100">
         <div className="max-w-3xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
-            <button 
+            <button
               onClick={() => navigate(-1)}
               className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
               data-testid="back-btn"
@@ -455,37 +571,41 @@ const OrderDetailPage = () => {
               }`}>
                 {status.label}
               </p>
-              <p className={`text-sm ${
-                status.color === 'success' ? 'text-green-600' :
-                status.color === 'warning' ? 'text-yellow-600' :
-                status.color === 'error' ? 'text-red-600' :
-                status.color === 'primary' ? 'text-primary/80' :
-                'text-blue-600'
-              }`}>
+              <p className="text-sm text-slate-600">
+                {order.status === 'OPEN' && 'Pesanan menunggu Anda memilih mitra.'}
                 {order.status === 'NEGOTIATING' &&
                   (user?.role === 'USER'
-                    ? 'Diskusikan harga dengan mitra sebelum pembayaran'
-                    : 'Diskusikan kebutuhan dan tentukan harga final untuk pelanggan')}
+                    ? 'Diskusikan kebutuhan dan tawar harga dengan mitra.'
+                    : 'Pelanggan memilih Anda. Diskusikan kebutuhan dan sepakati harga.')}
                 {order.status === 'AWAITING_PAYMENT' &&
                   (user?.role === 'USER'
-                    ? 'Harga final sudah ditentukan. Silakan bayar untuk mengirim pesanan ke mitra'
-                    : 'Menunggu pelanggan membayar harga yang sudah disepakati')}
-                {order.status === 'PENDING' && 'Menunggu konfirmasi dari mitra'}
-                {order.status === 'CONFIRMED' && 'Mitra akan datang sesuai jadwal'}
-                {order.status === 'IN_PROGRESS' && 'Pekerjaan sedang berlangsung'}
+                    ? 'Harga sudah disepakati. Silakan bayar untuk melanjutkan.'
+                    : 'Menunggu pelanggan membayar harga yang disepakati.')}
+                {order.status === 'PENDING' && 'Menunggu konfirmasi dari mitra.'}
+                {order.status === 'CONFIRMED' && 'Mitra akan datang sesuai jadwal.'}
+                {order.status === 'IN_PROGRESS' && 'Pekerjaan sedang berlangsung.'}
                 {order.status === 'AWAITING_USER_CONFIRMATION' &&
                   (user?.role === 'USER'
-                    ? 'Mitra menandai pekerjaan selesai — konfirmasi untuk melepas pembayaran'
-                    : 'Menunggu pelanggan mengonfirmasi sebelum dana dicairkan')}
-                {order.status === 'COMPLETED' && 'Pekerjaan telah selesai'}
-                {order.status === 'CANCELLED' && 'Pesanan telah dibatalkan'}
+                    ? 'Mitra menandai pekerjaan selesai - konfirmasi untuk melepas pembayaran.'
+                    : 'Menunggu pelanggan mengonfirmasi sebelum dana dicairkan.')}
+                {order.status === 'COMPLETED' && 'Pekerjaan telah selesai.'}
+                {order.status === 'CANCELLED' && 'Pesanan telah dibatalkan.'}
               </p>
             </div>
           </div>
+          {order.status === 'OPEN' && user?.role === 'USER' && (
+            <button
+              onClick={() => navigate(`/orders/${orderId}/choose-mitra`)}
+              className="btn-primary mt-4 w-full"
+              data-testid="go-choose-mitra"
+            >
+              Pilih Mitra Sekarang
+            </button>
+          )}
         </div>
 
         {/* Progress Timeline */}
-        {order.status !== 'CANCELLED' && (
+        {!['CANCELLED', 'OPEN'].includes(order.status) && (
           <div className="card p-6">
             <h3 className="font-heading font-semibold text-secondary mb-4">Status Pesanan</h3>
             <div className="status-timeline">
@@ -493,7 +613,6 @@ const OrderDetailPage = () => {
                 const stepNum = index + 1;
                 const isCompleted = status.step >= stepNum;
                 const isActive = status.step === stepNum;
-                
                 return (
                   <div key={index} className={`status-step ${isCompleted ? 'completed' : ''} ${isActive ? 'active' : ''}`}>
                     <div className="step-icon">
@@ -503,9 +622,7 @@ const OrderDetailPage = () => {
                         <span className="text-xs">{stepNum}</span>
                       )}
                     </div>
-                    <span className={`text-xs ${isCompleted ? 'text-slate-700' : 'text-slate-400'}`}>
-                      {label}
-                    </span>
+                    <span className={`text-xs ${isCompleted ? 'text-slate-700' : 'text-slate-400'}`}>{label}</span>
                   </div>
                 );
               })}
@@ -526,9 +643,7 @@ const OrderDetailPage = () => {
                 <p className="text-sm text-slate-500">{order.service_category}</p>
               </div>
             </div>
-
             <hr className="border-slate-100" />
-
             <div className="grid gap-3">
               <div className="flex items-center gap-3 text-sm">
                 <Calendar className="w-4 h-4 text-slate-400" />
@@ -545,6 +660,13 @@ const OrderDetailPage = () => {
                 <span className="text-slate-500">Alamat:</span>
                 <span className="font-medium">{order.address}</span>
               </div>
+              {order.description && (
+                <div className="flex items-start gap-3 text-sm">
+                  <MessageCircle className="w-4 h-4 text-slate-400 mt-0.5" />
+                  <span className="text-slate-500">Kebutuhan:</span>
+                  <span className="font-medium">{order.description}</span>
+                </div>
+              )}
               {order.notes && (
                 <div className="flex items-start gap-3 text-sm">
                   <MessageCircle className="w-4 h-4 text-slate-400 mt-0.5" />
@@ -557,209 +679,319 @@ const OrderDetailPage = () => {
         </div>
 
         {/* Mitra Info */}
-        <div className="card p-6">
-          <h3 className="font-heading font-semibold text-secondary mb-4">Mitra</h3>
-          <div className="flex items-center gap-4">
-            <img 
-              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${order.mitra_name}`}
-              alt={order.mitra_name}
-              className="w-14 h-14 rounded-xl"
-            />
-            <div className="flex-1">
-              <p className="font-medium text-secondary">{order.mitra_name}</p>
-              <div className="flex items-center gap-1 mt-1">
-                <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                <span className="text-sm text-slate-600">
-                  {mitra?.mitra_profile?.rating?.toFixed(1) || '0.0'}
-                </span>
-              </div>
-            </div>
-            <a 
-              href={`tel:${mitra?.phone || ''}`}
-              className="p-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-            >
-              <Phone className="w-5 h-5" />
-            </a>
-          </div>
-        </div>
-
-        {/* Payment Info */}
-        <div className="card border-primary/10 p-6">
-          <div className="mb-4 flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Wallet className="h-5 w-5" />
-            </span>
-            <h3 className="font-heading font-semibold text-secondary">Pembayaran</h3>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-slate-500">Total</span>
-            <span className="font-heading text-2xl font-bold text-primary">
-              Rp {order.total_amount?.toLocaleString('id-ID')}
-            </span>
-          </div>
-          <div className="mt-3 rounded-lg bg-primary/10 p-3">
-            <p className="text-sm text-primary">
-              {order.status === 'NEGOTIATING'
-                ? 'Belum ada pembayaran. Gunakan chat untuk menyepakati harga final.'
-                : order.status === 'AWAITING_PAYMENT'
-                  ? 'Harga final sudah siap dibayar. Dana akan masuk escrow setelah pembayaran berhasil.'
-                  : order.status === 'AWAITING_USER_CONFIRMATION'
-                    ? 'Dana masih di escrow hingga Anda mengonfirmasi pekerjaan selesai'
-                    : 'Dana disimpan di escrow - aman hingga pekerjaan selesai dan Anda mengonfirmasi'}
-            </p>
-          </div>
-          {user?.role === 'USER' && order.status === 'AWAITING_PAYMENT' && (
-            <button
-              type="button"
-              onClick={() => setPayConfirmOpen(true)}
-              disabled={paying}
-              className="btn-primary mt-4 inline-flex w-full items-center justify-center gap-2 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
-              data-testid="pay-agreed-price-btn"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
-                <Wallet className="h-4 w-4" />
-              </span>
-              <span>{paying ? 'Memproses pembayaran...' : 'Bayar harga yang disepakati'}</span>
-            </button>
-          )}
-        </div>
-
-        {/* Negotiation Chat */}
-        <div className="card border-primary/10 p-6">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <div className="flex items-center gap-2">
-              <MessageCircle className="w-5 h-5 text-primary" />
-              <h3 className="font-heading font-semibold text-secondary">Chat Negosiasi</h3>
-            </div>
-            {order.status === 'AWAITING_PAYMENT' && (
-              <span className="badge badge-warning">Menunggu pembayaran</span>
-            )}
-          </div>
-
-          <div
-            ref={chatContainerRef}
-            onScroll={rememberChatScrollPosition}
-            className="max-h-80 space-y-3 overflow-y-auto rounded-xl bg-primary/5 p-3"
-          >
-            {messages.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-6">
-                Belum ada pesan. Mulai diskusi harga dan kebutuhan layanan di sini.
-              </p>
-            ) : (
-              messages.map((message) => {
-                const isMine = message.sender_id === user?.id;
-                const isPriceMessage = ['OFFER', 'FINAL_PRICE'].includes(message.message_type);
-                return (
-                  <div
-                    key={message.id}
-                    className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div className={`max-w-[82%] rounded-xl px-4 py-3 text-sm ${
-                      isMine ? 'bg-primary text-white' : 'bg-white border border-slate-100 text-slate-700'
-                    }`}>
-                      <div className="mb-1 flex items-center gap-2 text-xs opacity-80">
-                        <span>{message.sender_name}</span>
-                        {isPriceMessage && (
-                          <span className={`rounded-full px-2 py-0.5 ${
-                            isMine ? 'bg-white/20' : 'bg-primary/10 text-primary'
-                          }`}>
-                            {message.message_type === 'OFFER' ? 'Penawaran' : 'Harga final'}
-                          </span>
-                        )}
-                      </div>
-                      {message.message && <p>{message.message}</p>}
-                      {message.offer_amount && (
-                        <p className="mt-2 font-heading text-base font-semibold">
-                          {formatCurrency(message.offer_amount)}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          {canChat && (
-            <div className="mt-4 space-y-3">
-              <textarea
-                value={chatText}
-                onChange={(e) => setChatText(e.target.value)}
-                className="input min-h-[88px] resize-none"
-                placeholder="Tulis pesan..."
-                data-testid="order-chat-message"
+        {order.mitra_id && (
+          <div className="card p-6">
+            <h3 className="font-heading font-semibold text-secondary mb-4">Mitra</h3>
+            <div className="flex items-center gap-4">
+              <img
+                src={mitra?.mitra_profile?.photo_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${order.mitra_name}`}
+                alt={order.mitra_name}
+                className="w-14 h-14 rounded-xl bg-slate-100 object-cover"
               />
-              <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="flex-1">
+                <p className="font-medium text-secondary">{order.mitra_name}</p>
+                <div className="flex items-center gap-1 mt-1">
+                  <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                  <span className="text-sm text-slate-600">
+                    {Number(mitra?.mitra_profile?.rating || 0).toFixed(1)}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    ({mitra?.mitra_profile?.review_count || 0} review)
+                  </span>
+                </div>
                 <button
                   type="button"
-                  onClick={handleSendTextMessage}
-                  disabled={chatSubmitting || !chatText.trim()}
-                  className="btn-secondary flex-1 disabled:opacity-50"
-                  data-testid="send-chat-message"
+                  onClick={() => navigate(`/mitras/${order.mitra_id}`)}
+                  className="text-xs text-primary font-medium mt-2 hover:underline"
                 >
-                  Kirim Pesan
+                  Lihat profil mitra
                 </button>
-                {canUserOffer && (
-                  <div className="flex flex-1 gap-2">
+              </div>
+              <a
+                href={`tel:${mitra?.phone || ''}`}
+                className="p-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+              >
+                <Phone className="w-5 h-5" />
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* Customer rating (mitra-only) */}
+        {user?.role === 'MITRA' && customerRating && customerRating.rating_count > 0 && (
+          <div className="card p-6">
+            <h3 className="font-heading font-semibold text-secondary mb-2">Reputasi Pelanggan</h3>
+            <p className="text-xs text-slate-400 mb-3">Hanya terlihat oleh mitra</p>
+            <div className="flex items-center gap-2">
+              <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
+              <span className="font-heading text-lg font-bold text-secondary">
+                {Number(customerRating.rating || 0).toFixed(1)}
+              </span>
+              <span className="text-sm text-slate-500">dari {customerRating.rating_count} penilaian</span>
+            </div>
+            {order.user_id && (
+              <button
+                type="button"
+                onClick={() => navigate(`/users/${order.user_id}/profile`)}
+                className="text-xs text-primary font-medium mt-3 hover:underline"
+              >
+                Lihat profil pelanggan
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Payment Info */}
+        {order.mitra_id && (
+          <div className="card border-primary/10 p-6">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Wallet className="h-5 w-5" />
+              </span>
+              <h3 className="font-heading font-semibold text-secondary">Pembayaran</h3>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500">Total</span>
+              <span className="font-heading text-2xl font-bold text-primary">
+                Rp {order.total_amount?.toLocaleString('id-ID')}
+              </span>
+            </div>
+            <div className="mt-3 rounded-lg bg-primary/10 p-3">
+              <p className="text-sm text-primary">
+                {order.status === 'NEGOTIATING'
+                  ? 'Belum ada pembayaran. Sepakati harga lewat penawaran terlebih dahulu.'
+                  : order.status === 'AWAITING_PAYMENT'
+                    ? 'Harga sudah disepakati. Dana akan masuk escrow setelah pembayaran berhasil.'
+                    : order.status === 'AWAITING_USER_CONFIRMATION'
+                      ? 'Dana masih di escrow hingga Anda mengonfirmasi pekerjaan selesai.'
+                      : 'Dana disimpan di escrow - aman hingga pekerjaan selesai dan Anda mengonfirmasi.'}
+              </p>
+            </div>
+            {user?.role === 'USER' && order.status === 'AWAITING_PAYMENT' && (
+              <button
+                type="button"
+                onClick={() => setPayConfirmOpen(true)}
+                disabled={paying}
+                className="btn-primary mt-4 inline-flex w-full items-center justify-center gap-2 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                data-testid="pay-agreed-price-btn"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
+                  <Wallet className="h-4 w-4" />
+                </span>
+                <span>{paying ? 'Memproses pembayaran...' : 'Bayar harga yang disepakati'}</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Negotiation Chat */}
+        {order.mitra_id && !['CANCELLED'].includes(order.status) && (
+          <div className="card border-primary/10 p-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2">
+                <MessageCircle className="w-5 h-5 text-primary" />
+                <h3 className="font-heading font-semibold text-secondary">Chat Negosiasi</h3>
+              </div>
+              {order.negotiation_locked && <span className="badge badge-warning">Terkunci</span>}
+            </div>
+
+            <div
+              ref={chatContainerRef}
+              onScroll={rememberChatScrollPosition}
+              className="max-h-80 space-y-3 overflow-y-auto rounded-xl bg-primary/5 p-3"
+            >
+              {messages.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-6">
+                  Belum ada pesan. Mulai diskusi harga dan kebutuhan layanan di sini.
+                </p>
+              ) : (
+                messages.map((message) => {
+                  if (message.message_type === 'SYSTEM') {
+                    return (
+                      <div key={getMessageKey(message)} className="flex justify-center">
+                        <span className="rounded-full bg-slate-200/70 px-3 py-1 text-xs text-slate-600 text-center max-w-[90%]">
+                          {message.message}
+                        </span>
+                      </div>
+                    );
+                  }
+                  const isMine = message.sender_id === user?.id;
+                  const isOffer = ['PRICE_OFFER', 'OFFER', 'FINAL_PRICE'].includes(message.message_type);
+                  const isImage = message.message_type === 'IMAGE';
+                  return (
+                    <div key={getMessageKey(message)} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[82%] rounded-xl px-4 py-3 text-sm ${
+                        isMine ? 'bg-primary text-white' : 'bg-white border border-slate-100 text-slate-700'
+                      }`}>
+                        <div className="mb-1 flex items-center gap-2 text-xs opacity-80">
+                          <span>{message.sender_name}</span>
+                          {isOffer && (
+                            <span className={`rounded-full px-2 py-0.5 ${isMine ? 'bg-white/20' : 'bg-primary/10 text-primary'}`}>
+                              Penawaran
+                            </span>
+                          )}
+                        </div>
+                        {isImage && message.image_data && (
+                          <img src={message.image_data} alt="Lampiran" className="mb-1 max-h-48 rounded-lg" />
+                        )}
+                        {message.message && <p>{message.message}</p>}
+                        {isOffer && message.offer_amount && (
+                          <p className="mt-2 font-heading text-base font-semibold">
+                            {formatCurrency(message.offer_amount)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {canChat ? (
+              <div className="mt-4 space-y-3">
+                <textarea
+                  value={chatText}
+                  onChange={(e) => setChatText(e.target.value)}
+                  className="input min-h-[72px] resize-none"
+                  placeholder="Tulis pesan..."
+                  data-testid="order-chat-message"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSendTextMessage}
+                    disabled={chatSubmitting || !chatText.trim()}
+                    className="btn-primary inline-flex items-center gap-2 disabled:opacity-50"
+                    data-testid="send-chat-message"
+                  >
+                    <Send className="w-4 h-4" /> Kirim
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={chatSubmitting}
+                    className="btn-secondary inline-flex items-center gap-2 disabled:opacity-50"
+                    data-testid="send-image"
+                  >
+                    <ImageIcon className="w-4 h-4" /> Gambar
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageSelected}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowOfferForm((v) => !v)}
+                    className="btn-secondary inline-flex items-center gap-2 ml-auto"
+                    data-testid="open-offer-form"
+                  >
+                    <Tag className="w-4 h-4" /> Ajukan Penawaran
+                  </button>
+                </div>
+
+                {showOfferForm && (
+                  <div className="flex gap-2 rounded-xl bg-slate-50 p-3">
                     <input
                       type="number"
                       min="1"
-                      value={offerAmount}
-                      onChange={(e) => setOfferAmount(e.target.value)}
+                      value={offerInput}
+                      onChange={(e) => setOfferInput(e.target.value)}
                       className="input"
-                      placeholder="Penawaran (Rp)"
+                      placeholder="Nominal penawaran (Rp)"
                       data-testid="offer-amount"
                     />
                     <button
                       type="button"
                       onClick={handleSendOffer}
-                      disabled={chatSubmitting || !offerAmount}
+                      disabled={chatSubmitting || !offerInput}
                       className="btn-primary whitespace-nowrap disabled:opacity-50"
-                      data-testid="send-offer"
+                      data-testid="submit-offer"
                     >
-                      Tawar
-                    </button>
-                  </div>
-                )}
-                {canMitraSetFinal && (
-                  <div className="flex flex-1 gap-2">
-                    <input
-                      type="number"
-                      min="1"
-                      value={finalPrice}
-                      onChange={(e) => setFinalPrice(e.target.value)}
-                      className="input"
-                      placeholder="Harga final (Rp)"
-                      data-testid="final-price"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSetFinalPrice}
-                      disabled={chatSubmitting || !finalPrice}
-                      className="btn-primary whitespace-nowrap disabled:opacity-50"
-                      data-testid="set-final-price"
-                    >
-                      Tetapkan
+                      Kirim Penawaran
                     </button>
                   </div>
                 )}
               </div>
+            ) : (
+              <p className="mt-4 rounded-lg bg-slate-50 p-3 text-center text-sm text-slate-500">
+                Chat dikunci karena harga sudah disepakati atau pesanan telah berlanjut.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Active offer card */}
+        {(isNegotiating || order.status === 'AWAITING_PAYMENT') && (activeOffer || order.base_price != null) && (
+          <div className="card border-primary/20 p-6">
+            <div className="mb-3 flex items-center gap-2">
+              <Tag className="w-5 h-5 text-primary" />
+              <h3 className="font-heading font-semibold text-secondary">Penawaran Harga</h3>
             </div>
-          )}
-        </div>
+            <div className="grid gap-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Harga dasar mitra</span>
+                <span className="font-medium">{formatCurrency(order.base_price || order.initial_price)}</span>
+              </div>
+              {activeOffer && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">
+                    Penawaran aktif ({activeOffer.sender_role === 'USER' ? 'Pelanggan' : 'Mitra'})
+                  </span>
+                  <span className="font-heading text-lg font-bold text-primary">
+                    {formatCurrency(activeOffer.amount)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {isNegotiating && activeOffer && activeOffer.sender_id !== user?.id && (
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => setAcceptTarget(activeOffer)}
+                  className="btn-primary flex-1"
+                  data-testid="accept-offer"
+                >
+                  Terima
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRejectOffer(activeOffer)}
+                  className="btn-secondary flex-1 text-red-500 border-red-200 hover:bg-red-50"
+                  data-testid="reject-offer"
+                >
+                  Tolak
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowOfferForm(true)}
+                  className="btn-secondary flex-1"
+                  data-testid="counter-offer"
+                >
+                  Tawar Balik
+                </button>
+              </div>
+            )}
+            {isNegotiating && activeOffer && activeOffer.sender_id === user?.id && (
+              <p className="mt-3 text-sm text-slate-500">Menunggu respon dari pihak lain atas penawaran Anda.</p>
+            )}
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="space-y-3">
-          {/* User Actions */}
           {user?.role === 'USER' && (
             <>
-              {order.status === 'COMPLETED' && !showReview && (
+              {order.status === 'COMPLETED' && (
                 <button
-                  onClick={() => setShowReview(true)}
+                  onClick={() => setShowMitraRating(true)}
                   className="btn-primary w-full"
-                  data-testid="review-btn"
+                  data-testid="rate-mitra-btn"
                 >
-                  Beri Ulasan
+                  Beri Penilaian Mitra
                 </button>
               )}
               {order.status === 'AWAITING_USER_CONFIRMATION' && (
@@ -771,7 +1003,7 @@ const OrderDetailPage = () => {
                   Konfirmasi pekerjaan selesai
                 </button>
               )}
-              {['NEGOTIATING', 'AWAITING_PAYMENT', 'PENDING'].includes(order.status) && (
+              {['OPEN', 'NEGOTIATING', 'AWAITING_PAYMENT', 'PENDING'].includes(order.status) && (
                 <button
                   onClick={() => handleStatusUpdate('CANCELLED')}
                   className="btn-secondary w-full text-red-500 border-red-200 hover:bg-red-50"
@@ -783,9 +1015,17 @@ const OrderDetailPage = () => {
             </>
           )}
 
-          {/* Mitra Actions */}
           {user?.role === 'MITRA' && (
             <>
+              {order.status === 'COMPLETED' && (
+                <button
+                  onClick={() => setShowUserRating(true)}
+                  className="btn-primary w-full"
+                  data-testid="rate-user-btn"
+                >
+                  Nilai Pelanggan
+                </button>
+              )}
               {['NEGOTIATING', 'AWAITING_PAYMENT'].includes(order.status) && (
                 <button
                   onClick={() => handleStatusUpdate('CANCELLED')}
@@ -797,101 +1037,50 @@ const OrderDetailPage = () => {
               )}
               {order.status === 'PENDING' && (
                 <div className="flex gap-3">
-                  <button
-                    onClick={() => handleStatusUpdate('CONFIRMED')}
-                    className="btn-primary flex-1"
-                    data-testid="confirm-btn"
-                  >
+                  <button onClick={() => handleStatusUpdate('CONFIRMED')} className="btn-primary flex-1" data-testid="confirm-btn">
                     Terima Pesanan
                   </button>
-                  <button
-                    onClick={() => handleStatusUpdate('CANCELLED')}
-                    className="btn-secondary flex-1 text-red-500"
-                    data-testid="reject-btn"
-                  >
+                  <button onClick={() => handleStatusUpdate('CANCELLED')} className="btn-secondary flex-1 text-red-500" data-testid="reject-btn">
                     Tolak
                   </button>
                 </div>
               )}
               {order.status === 'CONFIRMED' && (
-                <button
-                  onClick={() => handleStatusUpdate('IN_PROGRESS')}
-                  className="btn-primary w-full"
-                  data-testid="start-btn"
-                >
+                <button onClick={() => handleStatusUpdate('IN_PROGRESS')} className="btn-primary w-full" data-testid="start-btn">
                   Mulai Pengerjaan
                 </button>
               )}
               {order.status === 'IN_PROGRESS' && (
-                <button
-                  onClick={() => handleStatusUpdate('AWAITING_USER_CONFIRMATION')}
-                  className="btn-primary w-full"
-                  data-testid="complete-btn"
-                >
+                <button onClick={() => handleStatusUpdate('AWAITING_USER_CONFIRMATION')} className="btn-primary w-full" data-testid="complete-btn">
                   Tandai selesai (tunggu konfirmasi pengguna)
                 </button>
               )}
             </>
           )}
         </div>
+      </div>
 
-        {/* Review Modal */}
-        {showReview && (
-          <div className="card p-6 animate-fade-in">
-            <h3 className="font-heading font-semibold text-secondary mb-4">Beri Ulasan</h3>
-            
-            <div className="mb-4">
-              <p className="text-sm text-slate-500 mb-2">Rating</p>
-              <div className="flex gap-2">
-                {[1, 2, 3, 4, 5].map(star => (
-                  <button
-                    key={star}
-                    onClick={() => setReview({ ...review, rating: star })}
-                    className="p-1"
-                    data-testid={`star-${star}`}
-                  >
-                    <Star 
-                      className={`w-8 h-8 transition-colors ${
-                        star <= review.rating 
-                          ? 'text-yellow-400 fill-yellow-400' 
-                          : 'text-slate-300'
-                      }`}
-                    />
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <p className="text-sm text-slate-500 mb-2">Komentar (opsional)</p>
-              <textarea
-                value={review.comment}
-                onChange={(e) => setReview({ ...review, comment: e.target.value })}
-                className="input min-h-[100px] resize-none"
-                placeholder="Bagikan pengalaman Anda..."
-                data-testid="review-comment"
-              />
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowReview(false)}
-                className="btn-secondary flex-1"
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleReviewSubmit}
-                disabled={submitting}
-                className="btn-primary flex-1"
-                data-testid="submit-review-btn"
-              >
-                {submitting ? 'Mengirim...' : 'Kirim Ulasan'}
-              </button>
-            </div>
+      {/* Accept offer confirmation modal */}
+      <ConfirmDialog
+        open={!!acceptTarget}
+        title="Apakah Anda yakin menerima penawaran ini?"
+        confirmLabel="Ya, terima"
+        loading={acceptLoading}
+        onCancel={() => !acceptLoading && setAcceptTarget(null)}
+        onConfirm={handleAcceptOffer}
+      >
+        {acceptTarget && (
+          <div className="mt-4 grid gap-2 rounded-xl bg-slate-50 p-4 text-sm">
+            <div className="flex justify-between"><span className="text-slate-500">Jenis Jasa</span><span className="font-medium">{order.service_name}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Nama Mitra</span><span className="font-medium">{order.mitra_name}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Harga Awal</span><span className="font-medium">{formatCurrency(order.base_price || order.initial_price)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Harga Deal</span><span className="font-heading font-bold text-primary">{formatCurrency(acceptTarget.amount)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Tanggal</span><span className="font-medium">{order.scheduled_date}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Jam</span><span className="font-medium">{order.scheduled_time}</span></div>
+            <div className="flex justify-between gap-3"><span className="text-slate-500">Alamat</span><span className="font-medium text-right">{order.address}</span></div>
           </div>
         )}
-      </div>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={payConfirmOpen}
@@ -904,9 +1093,7 @@ const OrderDetailPage = () => {
       >
         <div className="mt-4 rounded-xl bg-primary/10 p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-primary">Total pembayaran</p>
-          <p className="mt-1 font-heading text-2xl font-bold text-primary">
-            {formatCurrency(agreedAmount)}
-          </p>
+          <p className="mt-1 font-heading text-2xl font-bold text-primary">{formatCurrency(agreedAmount)}</p>
         </div>
       </ConfirmDialog>
 
@@ -923,14 +1110,8 @@ const OrderDetailPage = () => {
         }}
       >
         <div className="mt-4 grid gap-2 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
-          <div className="flex justify-between gap-3">
-            <span>Saldo saat ini</span>
-            <span className="font-semibold">{formatCurrency(walletBalance || 0)}</span>
-          </div>
-          <div className="flex justify-between gap-3">
-            <span>Kekurangan</span>
-            <span className="font-semibold">{formatCurrency(walletShortage)}</span>
-          </div>
+          <div className="flex justify-between gap-3"><span>Saldo saat ini</span><span className="font-semibold">{formatCurrency(walletBalance || 0)}</span></div>
+          <div className="flex justify-between gap-3"><span>Kekurangan</span><span className="font-semibold">{formatCurrency(walletShortage)}</span></div>
         </div>
       </ConfirmDialog>
 
@@ -942,6 +1123,55 @@ const OrderDetailPage = () => {
         onCancel={() => setCompleteConfirmOpen(false)}
         onConfirm={handleUserConfirmCompleted}
       />
+
+      {/* Mitra rating modal (user rates mitra) */}
+      <ConfirmDialog
+        open={showMitraRating}
+        title="Beri Penilaian Mitra"
+        confirmLabel="Kirim Penilaian"
+        loading={ratingSubmitting}
+        onCancel={() => !ratingSubmitting && setShowMitraRating(false)}
+        onConfirm={handleMitraRatingSubmit}
+      >
+        <div className="mt-4 space-y-3">
+          <StarRow label="Kualitas Kerja" value={mitraRating.quality} onChange={(v) => setMitraRating({ ...mitraRating, quality: v })} />
+          <StarRow label="Ketepatan Waktu" value={mitraRating.punctuality} onChange={(v) => setMitraRating({ ...mitraRating, punctuality: v })} />
+          <StarRow label="Keramahan" value={mitraRating.friendliness} onChange={(v) => setMitraRating({ ...mitraRating, friendliness: v })} />
+          <StarRow label="Profesionalitas" value={mitraRating.professionalism} onChange={(v) => setMitraRating({ ...mitraRating, professionalism: v })} />
+          <textarea
+            value={mitraRating.comment}
+            onChange={(e) => setMitraRating({ ...mitraRating, comment: e.target.value })}
+            className="input min-h-[80px] resize-none"
+            placeholder="Komentar (opsional)..."
+            data-testid="mitra-rating-comment"
+          />
+        </div>
+      </ConfirmDialog>
+
+      {/* User rating modal (mitra rates user) */}
+      <ConfirmDialog
+        open={showUserRating}
+        title="Nilai Pelanggan"
+        description="Penilaian ini hanya terlihat oleh sesama mitra, tidak terlihat oleh pelanggan."
+        confirmLabel="Kirim Penilaian"
+        loading={ratingSubmitting}
+        onCancel={() => !ratingSubmitting && setShowUserRating(false)}
+        onConfirm={handleUserRatingSubmit}
+      >
+        <div className="mt-4 space-y-3">
+          <StarRow label="Pembayaran" value={userRating.payment} onChange={(v) => setUserRating({ ...userRating, payment: v })} />
+          <StarRow label="Kesopanan" value={userRating.politeness} onChange={(v) => setUserRating({ ...userRating, politeness: v })} />
+          <StarRow label="Kejelasan Instruksi" value={userRating.clarity} onChange={(v) => setUserRating({ ...userRating, clarity: v })} />
+          <StarRow label="Komunikasi" value={userRating.communication} onChange={(v) => setUserRating({ ...userRating, communication: v })} />
+          <textarea
+            value={userRating.comment}
+            onChange={(e) => setUserRating({ ...userRating, comment: e.target.value })}
+            className="input min-h-[80px] resize-none"
+            placeholder="Komentar (opsional)..."
+            data-testid="user-rating-comment"
+          />
+        </div>
+      </ConfirmDialog>
 
       <WalletTopUpModal
         open={topupOpen}

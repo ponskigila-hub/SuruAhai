@@ -12,8 +12,11 @@ import UserDashboard from './pages/UserDashboard';
 import MitraDashboard from './pages/MitraDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import BookingPage from './pages/BookingPage';
+import ChooseMitraPage from './pages/ChooseMitraPage';
 import OrderDetailPage from './pages/OrderDetailPage';
 import NotificationsPage from './pages/NotificationsPage';
+import MitraProfilePage from './pages/MitraProfilePage';
+import UserProfilePage from './pages/UserProfilePage';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -93,6 +96,14 @@ function AppRoutes() {
         } 
       />
       <Route 
+        path="/orders/:orderId/choose-mitra" 
+        element={
+          <ProtectedRoute allowedRoles={['USER']}>
+            <ChooseMitraPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
         path="/orders/:orderId" 
         element={
           <ProtectedRoute>
@@ -103,8 +114,24 @@ function AppRoutes() {
       <Route 
         path="/notifications" 
         element={
-          <ProtectedRoute allowedRoles={['USER']}>
+          <ProtectedRoute allowedRoles={['USER', 'MITRA']}>
             <NotificationsPage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/mitras/:mitraId" 
+        element={
+          <ProtectedRoute>
+            <MitraProfilePage />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/users/:userId/profile" 
+        element={
+          <ProtectedRoute allowedRoles={['MITRA']}>
+            <UserProfilePage />
           </ProtectedRoute>
         } 
       />

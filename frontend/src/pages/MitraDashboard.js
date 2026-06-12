@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Home, ShoppingBag, Wallet, LogOut, Menu, X,
   Clock, CheckCircle, Star, DollarSign, 
-  Power, Calendar, MapPin, User, Tags
+  Power, Calendar, MapPin, User, Tags, Crosshair, Loader2, Bell
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { getMitraDashboard, getOrders, updateOrderStatus, toggleMitraOnline, getWallet, getCategories, updateMitraProfile, requestMitraWithdraw } from '../services/api';
+import { getMitraDashboard, getOrders, updateOrderStatus, toggleMitraOnline, getWallet, getCategories, updateMitraProfile, requestMitraWithdraw, reverseGeocode, getNotifications } from '../services/api';
 import { toast } from 'sonner';
 
 const statusColors = {
@@ -43,16 +43,33 @@ const MitraDashboard = () => {
   const [isOnline, setIsOnline] = useState(false);
   const [categories, setCategories] = useState([]);
   const [profileServices, setProfileServices] = useState([]);
-  const [profileDescription, setProfileDescription] = useState('');
+  const [serviceConfigs, setServiceConfigs] = useState({});
+  const [profileBio, setProfileBio] = useState('');
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState('');
+  const [profileServiceArea, setProfileServiceArea] = useState('');
+  const [profileLocation, setProfileLocation] = useState(null);
+  const [locatingProfile, setLocatingProfile] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawBankName, setWithdrawBankName] = useState('');
   const [withdrawBankAccount, setWithdrawBankAccount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawSubmitting, setWithdrawSubmitting] = useState(false);
+  const [notifications, setNotifications] = useState([]);
 
   useEffect(() => {
     loadData();
+    const refreshNotifications = async () => {
+      try {
+        const res = await getNotifications();
+        setNotifications(Array.isArray(res.data) ? res.data : []);
+      } catch {
+        //
+      }
+    };
+    refreshNotifications();
+    const intervalId = window.setInterval(refreshNotifications, 30000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
   useEffect(() => {
@@ -69,8 +86,37 @@ const MitraDashboard = () => {
   useEffect(() => {
     if (!user?.mitra_profile) return;
     const mp = user.mitra_profile;
-    setProfileServices(Array.isArray(mp.services) ? [...mp.services] : []);
-    setProfileDescription(mp.description || '');
+    const offerings = Array.isArray(mp.service_offerings) ? mp.service_offerings : [];
+    if (offerings.length > 0) {
+      const cats = offerings.map((o) => o.category);
+      const configs = {};
+      offerings.forEach((o) => {
+        configs[o.category] = {
+          base_price: o.base_price != null ? String(o.base_price) : '',
+          tools: Array.isArray(o.tools) ? o.tools.join(', ') : '',
+          description: o.description || '',
+        };
+      });
+      setProfileServices(cats);
+      setServiceConfigs(configs);
+    } else {
+      const legacyCats = Array.isArray(mp.services) ? [...mp.services] : [];
+      setProfileServices(legacyCats);
+      const legacyConfig = {
+        base_price: mp.base_price != null ? String(mp.base_price) : '',
+        tools: Array.isArray(mp.tools) ? mp.tools.join(', ') : '',
+        description: mp.description || '',
+      };
+      const configs = {};
+      legacyCats.forEach((cat) => {
+        configs[cat] = { ...legacyConfig };
+      });
+      setServiceConfigs(configs);
+    }
+    setProfileBio(mp.bio || '');
+    setProfilePhotoUrl(mp.photo_url || '');
+    setProfileServiceArea(mp.service_area || '');
+    setProfileLocation(mp.location || null);
   }, [user]);
 
   const loadData = async () => {
@@ -119,31 +165,120 @@ const MitraDashboard = () => {
   };
 
   const toggleProfileService = (categoryId) => {
-    setProfileServices((prev) =>
-      prev.includes(categoryId)
-        ? prev.filter((id) => id !== categoryId)
-        : [...prev, categoryId]
+    setProfileServices((prev) => {
+      if (prev.includes(categoryId)) {
+        setServiceConfigs((configs) => {
+          const next = { ...configs };
+          delete next[categoryId];
+          return next;
+        });
+        return prev.filter((id) => id !== categoryId);
+      }
+      setServiceConfigs((configs) => ({
+        ...configs,
+        [categoryId]: configs[categoryId] || { base_price: '', tools: '', description: '' },
+      }));
+      return [...prev, categoryId];
+    });
+  };
+
+  const updateServiceConfig = (categoryId, field, value) => {
+    setServiceConfigs((prev) => ({
+      ...prev,
+      [categoryId]: {
+        ...(prev[categoryId] || { base_price: '', tools: '', description: '' }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const formatServiceAreaFromGeocode = (data) => {
+    if (!data) return '';
+    const addr = data.address;
+    if (addr) {
+      const parts = [
+        addr.suburb || addr.village || addr.neighbourhood,
+        addr.city_district || addr.district || addr.city || addr.town || addr.municipality,
+        addr.state,
+      ].filter(Boolean);
+      const unique = [...new Set(parts)];
+      if (unique.length) return unique.slice(0, 2).join(', ');
+    }
+    return data.display_name || '';
+  };
+
+  const handleUseProfileLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error('Browser tidak mendukung lokasi GPS');
+      return;
+    }
+    setLocatingProfile(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        let address = '';
+        let serviceArea = '';
+        try {
+          const res = await reverseGeocode(latitude, longitude);
+          address = res.data?.display_name || '';
+          serviceArea = formatServiceAreaFromGeocode(res.data) || address;
+        } catch {
+          //
+        }
+        if (serviceArea) {
+          setProfileServiceArea(serviceArea);
+        }
+        setProfileLocation({ lat: latitude, lng: longitude, address });
+        toast.success('Lokasi mitra tersimpan');
+        setLocatingProfile(false);
+      },
+      () => {
+        toast.error('Gagal mengambil lokasi GPS');
+        setLocatingProfile(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
   const handleSaveProfile = async () => {
     if (profileServices.length === 0) {
-      toast.error('Pilih minimal satu kategori keahlian');
+      toast.error('Pilih minimal satu kategori jasa');
       return;
+    }
+    for (const catId of profileServices) {
+      const cfg = serviceConfigs[catId] || {};
+      const price = cfg.base_price === '' || cfg.base_price == null ? null : Number(cfg.base_price);
+      if (price != null && (!Number.isFinite(price) || price < 0)) {
+        toast.error(`Harga dasar kategori tidak valid`);
+        return;
+      }
     }
     setProfileSaving(true);
     try {
       const mp = user?.mitra_profile || {};
+      const service_offerings = profileServices.map((catId) => {
+        const cfg = serviceConfigs[catId] || {};
+        const price = cfg.base_price === '' || cfg.base_price == null ? null : Number(cfg.base_price);
+        return {
+          category: catId,
+          base_price: price,
+          tools: (cfg.tools || '').split(',').map((t) => t.trim()).filter(Boolean),
+          description: (cfg.description || '').trim() || null,
+        };
+      });
       await updateMitraProfile({
-        services: profileServices,
-        description: profileDescription.trim() || null,
+        service_offerings,
+        bio: profileBio.trim() || null,
+        photo_url: profilePhotoUrl.trim() || null,
+        service_area: profileServiceArea.trim() || null,
+        location: profileLocation,
         bank_name: mp.bank_name ?? null,
         bank_account: mp.bank_account ?? null,
         is_verified: mp.is_verified ?? false,
-        is_online: mp.is_online ?? false
+        is_online: mp.is_online ?? false,
       });
       await refreshUser();
-      toast.success('Profil keahlian disimpan');
+      toast.success('Profil jasa disimpan');
     } catch (error) {
       toast.error('Gagal menyimpan profil');
     } finally {
@@ -210,12 +345,19 @@ const MitraDashboard = () => {
   const activeOrders = orders.filter(o =>
     ['NEGOTIATING', 'AWAITING_PAYMENT', 'CONFIRMED', 'IN_PROGRESS', 'AWAITING_USER_CONFIRMATION'].includes(o.status)
   );
+  const notificationBadgeCount = notifications.filter((n) => n.read !== true).length;
+
+  const mitraProfile = user?.mitra_profile;
+  const hasServiceOfferings =
+    (Array.isArray(mitraProfile?.service_offerings) && mitraProfile.service_offerings.length > 0) ||
+    (Array.isArray(mitraProfile?.services) && mitraProfile.services.length > 0);
+  const isMitraVerified = mitraProfile?.is_verified === true;
 
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: Home },
     { id: 'orders', label: 'Pesanan', icon: ShoppingBag, badge: pendingOrders.length },
     { id: 'earnings', label: 'Pendapatan', icon: DollarSign },
-    { id: 'skills', label: 'Keahlian', icon: Tags },
+    { id: 'skills', label: 'Profil Jasa', icon: Tags },
     { id: 'wallet', label: 'Wallet', icon: Wallet }
   ];
 
@@ -240,13 +382,28 @@ const MitraDashboard = () => {
             <Menu className="w-5 h-5" />
           </button>
           <span className="font-heading font-bold text-secondary">Mitra Dashboard</span>
-          <button
-            onClick={handleToggleOnline}
-            className={`p-2 rounded-lg ${isOnline ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500'}`}
-            data-testid="toggle-online-mobile"
-          >
-            <Power className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => navigate('/notifications')}
+              className="relative p-2 rounded-lg hover:bg-slate-100"
+              aria-label="Notifikasi"
+            >
+              <Bell className="w-5 h-5 text-slate-600" />
+              {notificationBadgeCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 bg-primary text-white text-xs rounded-full flex items-center justify-center">
+                  {notificationBadgeCount > 9 ? '9+' : notificationBadgeCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={handleToggleOnline}
+              className={`p-2 rounded-lg ${isOnline ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500'}`}
+              data-testid="toggle-online-mobile"
+            >
+              <Power className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -333,6 +490,23 @@ const MitraDashboard = () => {
               </button>
             ))}
           </nav>
+
+          <button
+            type="button"
+            onClick={() => {
+              navigate('/notifications');
+              setSidebarOpen(false);
+            }}
+            className="sidebar-item w-full mt-4 relative"
+          >
+            <Bell className="w-5 h-5" />
+            <span className="flex-1 text-left">Notifikasi</span>
+            {notificationBadgeCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-primary text-white text-xs">
+                {notificationBadgeCount > 9 ? '9+' : notificationBadgeCount}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Logout */}
@@ -358,11 +532,11 @@ const MitraDashboard = () => {
                 Selamat datang, {user?.name}!
               </h1>
 
-              {(!user?.mitra_profile?.services || user.mitra_profile.services.length === 0) && (
+              {!hasServiceOfferings && (
                 <div className="card p-4 bg-amber-50 border-amber-100">
-                  <p className="text-sm text-amber-900 font-medium">Lengkapi keahlian Anda</p>
+                  <p className="text-sm text-amber-900 font-medium">Lengkapi profil jasa Anda</p>
                   <p className="text-sm text-amber-800/90 mt-1">
-                    Pilih kategori jasa di tab <span className="font-medium">Keahlian</span> agar Anda muncul saat pelanggan booking.
+                    Pilih minimal satu kategori jasa di tab <span className="font-medium">Profil Jasa</span>, isi harga, lalu klik <span className="font-medium">Simpan perubahan</span>.
                   </p>
                   <button
                     type="button"
@@ -370,8 +544,36 @@ const MitraDashboard = () => {
                     className="mt-3 text-sm font-medium text-amber-900 underline"
                     data-testid="overview-go-skills"
                   >
-                    Buka pengaturan keahlian
+                    Buka profil jasa
                   </button>
+                </div>
+              )}
+
+              {hasServiceOfferings && !isMitraVerified && (
+                <div className="card p-4 bg-blue-50 border-blue-100">
+                  <p className="text-sm text-blue-900 font-medium">Menunggu verifikasi admin</p>
+                  <p className="text-sm text-blue-800/90 mt-1">
+                    Profil jasa sudah tersimpan, tetapi Anda belum muncul di daftar mitra pelanggan sampai akun diverifikasi admin.
+                    Pastikan status <span className="font-medium">online</span> aktif setelah diverifikasi.
+                  </p>
+                </div>
+              )}
+
+              {hasServiceOfferings && isMitraVerified && !isOnline && (
+                <div className="card p-4 bg-amber-50 border-amber-100">
+                  <p className="text-sm text-amber-900 font-medium">Nyalakan status online</p>
+                  <p className="text-sm text-amber-800/90 mt-1">
+                    Akun sudah terverifikasi. Aktifkan toggle online di sidebar agar pelanggan bisa memilih Anda.
+                  </p>
+                </div>
+              )}
+
+              {hasServiceOfferings && isMitraVerified && isOnline && (
+                <div className="card p-4 bg-green-50 border-green-100">
+                  <p className="text-sm text-green-900 font-medium">Siap menerima pesanan</p>
+                  <p className="text-sm text-green-800/90 mt-1">
+                    Profil lengkap, terverifikasi, dan online — Anda akan muncul saat pelanggan memilih mitra dengan kategori yang sama.
+                  </p>
                 </div>
               )}
 
@@ -606,11 +808,20 @@ const MitraDashboard = () => {
           {activeTab === 'skills' && (
             <div className="space-y-6 animate-fade-in">
               <div>
-                <h1 className="font-heading text-2xl font-bold text-secondary">Keahlian & profil</h1>
+                <h1 className="font-heading text-2xl font-bold text-secondary">Profil jasa</h1>
                 <p className="text-sm text-slate-500 mt-1">
-                  Tentukan jenis jasa yang Anda layani. Pelanggan hanya dapat memilih Anda untuk booking pada kategori yang dicentang.
+                  Setiap kategori jasa punya harga, peralatan, dan deskripsi sendiri. Waktu respon dihitung otomatis dari aktivitas chat.
                 </p>
               </div>
+
+              {user?.mitra_profile?.avg_response_time_minutes != null && (
+                <div className="card p-4 bg-primary/5 border-primary/20">
+                  <p className="text-sm text-secondary">
+                    ⚡ Biasanya membalas dalam <strong>{user.mitra_profile.avg_response_time_minutes} menit</strong>
+                    <span className="text-slate-500"> (dihitung otomatis dari chat)</span>
+                  </p>
+                </div>
+              )}
 
               <div className="card p-6 space-y-3">
                 <h2 className="font-heading font-semibold text-secondary text-sm">Kategori jasa</h2>
@@ -640,15 +851,114 @@ const MitraDashboard = () => {
                 </div>
               </div>
 
+              {profileServices.map((catId) => {
+                const cat = categories.find((c) => c.id === catId);
+                const cfg = serviceConfigs[catId] || { base_price: '', tools: '', description: '' };
+                return (
+                  <div key={catId} className="card p-6 space-y-4 border-l-4 border-primary">
+                    <h2 className="font-heading font-semibold text-secondary text-sm uppercase tracking-wide">
+                      {cat?.name || catId}
+                    </h2>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Harga dasar (Rp)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1000"
+                        value={cfg.base_price}
+                        onChange={(e) => updateServiceConfig(catId, 'base_price', e.target.value)}
+                        className="input"
+                        placeholder="Contoh: 100000"
+                        data-testid={`mitra-base-price-${catId}`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Peralatan yang digunakan</label>
+                      <input
+                        type="text"
+                        value={cfg.tools}
+                        onChange={(e) => updateServiceConfig(catId, 'tools', e.target.value)}
+                        className="input"
+                        placeholder="Pisahkan dengan koma, contoh: Vacuum Cleaner, Disinfektan"
+                        data-testid={`mitra-tools-${catId}`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Deskripsi layanan</label>
+                      <textarea
+                        value={cfg.description}
+                        onChange={(e) => updateServiceConfig(catId, 'description', e.target.value)}
+                        className="input min-h-[80px] resize-none"
+                        placeholder="Jelaskan layanan untuk kategori ini..."
+                        data-testid={`mitra-description-${catId}`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
               <div className="card p-6 space-y-4">
-                <h2 className="font-heading font-semibold text-secondary text-sm">Deskripsi singkat</h2>
-                <textarea
-                  value={profileDescription}
-                  onChange={(e) => setProfileDescription(e.target.value)}
-                  className="input min-h-[100px] resize-none"
-                  placeholder="Ceritakan pengalaman atau spesialisasi Anda..."
-                  data-testid="mitra-profile-description"
-                />
+                <h2 className="font-heading font-semibold text-secondary text-sm">Profil umum</h2>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">URL foto profil (opsional)</label>
+                  <input
+                    type="url"
+                    value={profilePhotoUrl}
+                    onChange={(e) => setProfilePhotoUrl(e.target.value)}
+                    className="input"
+                    placeholder="https://..."
+                    data-testid="mitra-photo-url"
+                  />
+                </div>
+              </div>
+
+              <div className="card p-6 space-y-4">
+                <h2 className="font-heading font-semibold text-secondary text-sm">Bio</h2>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Bio singkat</label>
+                  <input
+                    type="text"
+                    value={profileBio}
+                    onChange={(e) => setProfileBio(e.target.value)}
+                    className="input"
+                    placeholder="Contoh: Profesional cleaning berpengalaman 5 tahun"
+                    data-testid="mitra-bio"
+                  />
+                </div>
+              </div>
+
+              <div className="card p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-heading font-semibold text-secondary text-sm">Lokasi & area layanan</h2>
+                  <button
+                    type="button"
+                    onClick={handleUseProfileLocation}
+                    disabled={locatingProfile}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                    data-testid="mitra-use-location"
+                  >
+                    {locatingProfile ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
+                    Gunakan Lokasi Saya
+                  </button>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Area layanan</label>
+                  <input
+                    type="text"
+                    value={profileServiceArea}
+                    onChange={(e) => setProfileServiceArea(e.target.value)}
+                    className="input"
+                    placeholder="Contoh: Jakarta Barat, Tangerang"
+                    data-testid="mitra-service-area"
+                  />
+                </div>
+                {profileLocation?.lat != null && (
+                  <p className="text-xs text-green-600 flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5" />
+                    Titik lokasi: {profileLocation.lat.toFixed(4)}, {profileLocation.lng.toFixed(4)}
+                    {profileLocation.address ? ` — ${profileLocation.address}` : ''}
+                  </p>
+                )}
               </div>
 
               <button

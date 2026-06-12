@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { 
-  ArrowLeft, MapPin, Calendar, Clock, Wallet,
-  CheckCircle, Star, Shield, AlertCircle
+import {
+  ArrowLeft, MapPin, Calendar, Clock, CheckCircle, Users, Crosshair, Loader2
 } from 'lucide-react';
-import { getService, getMitraList, createOrder } from '../services/api';
+import { getService, createOrder, geocodeAddress, reverseGeocode } from '../services/api';
 import { toast } from 'sonner';
 
 const BookingPage = () => {
@@ -14,24 +13,21 @@ const BookingPage = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [service, setService] = useState(null);
-  const [mitras, setMitras] = useState([]);
-  
+  const [locating, setLocating] = useState(false);
+
   const [bookingData, setBookingData] = useState({
-    mitra_id: '',
     scheduled_date: '',
     scheduled_time: '',
     address: '',
+    description: '',
     notes: ''
   });
-
-  const [selectedMitra, setSelectedMitra] = useState(null);
+  const [coords, setCoords] = useState(null);
 
   const loadData = useCallback(async () => {
     try {
       const serviceRes = await getService(serviceId);
-      const mitrasRes = await getMitraList({ category: serviceRes.data.category, is_online: true });
       setService(serviceRes.data);
-      setMitras(mitrasRes.data);
     } catch (error) {
       toast.error('Gagal memuat data layanan');
       navigate('/dashboard');
@@ -44,34 +40,84 @@ const BookingPage = () => {
     loadData();
   }, [loadData]);
 
-  const handleMitraSelect = (mitra) => {
-    setSelectedMitra(mitra);
-    setBookingData({ ...bookingData, mitra_id: mitra.id });
-    setStep(2);
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error('Browser tidak mendukung lokasi GPS');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        setCoords({ lat: latitude, lng: longitude });
+        try {
+          const res = await reverseGeocode(latitude, longitude);
+          if (res.data?.display_name) {
+            setBookingData((prev) => ({ ...prev, address: res.data.display_name }));
+          }
+        } catch {
+          //
+        }
+        toast.success('Lokasi GPS berhasil diambil');
+        setLocating(false);
+      },
+      () => {
+        toast.error('Gagal mengambil lokasi. Izinkan akses lokasi atau isi alamat manual.');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const resolveLocation = async () => {
+    if (coords) {
+      return { lat: coords.lat, lng: coords.lng, address: bookingData.address };
+    }
+    try {
+      const res = await geocodeAddress(bookingData.address);
+      const hit = Array.isArray(res.data) ? res.data[0] : null;
+      if (hit) {
+        return { lat: parseFloat(hit.lat), lng: parseFloat(hit.lon), address: bookingData.address };
+      }
+    } catch {
+      //
+    }
+    return null;
   };
 
   const handleSubmit = async () => {
-    if (!bookingData.mitra_id || !bookingData.scheduled_date || !bookingData.scheduled_time || !bookingData.address) {
+    if (!bookingData.scheduled_date || !bookingData.scheduled_time || !bookingData.address) {
       toast.error('Mohon lengkapi semua data');
       return;
     }
 
     setSubmitting(true);
     try {
+      const location = await resolveLocation();
       const response = await createOrder({
         service_id: serviceId,
-        mitra_id: bookingData.mitra_id,
         scheduled_date: bookingData.scheduled_date,
         scheduled_time: bookingData.scheduled_time,
         address: bookingData.address,
-        notes: bookingData.notes
+        description: bookingData.description || null,
+        notes: bookingData.notes || null,
+        location
       });
 
-      toast.success('Pesanan masuk tahap negosiasi');
-      navigate(`/orders/${response.data.id}`);
+      toast.success('Pesanan dibuat. Pilih mitra yang Anda inginkan.');
+      navigate(`/orders/${response.data.id}/choose-mitra`);
     } catch (error) {
       const detail = error.response?.data?.detail;
-      const msg = typeof detail === 'string' ? detail : 'Gagal membuat pesanan';
+      let msg = 'Gagal membuat pesanan';
+      if (typeof detail === 'string') {
+        msg = detail;
+      } else if (Array.isArray(detail) && detail.length) {
+        msg = detail.map((e) => e.msg).filter(Boolean).join(', ');
+      } else if (error.response?.status === 403) {
+        msg = 'Akun ini tidak bisa membuat pesanan. Login sebagai User.';
+      } else if (!error.response) {
+        msg = 'Tidak bisa hubungi backend. Pastikan API berjalan di port 8001.';
+      }
       toast.error(msg);
     } finally {
       setSubmitting(false);
@@ -98,7 +144,7 @@ const BookingPage = () => {
       <header className="sticky top-0 z-40 glass border-b border-slate-100">
         <div className="max-w-3xl mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
-            <button 
+            <button
               onClick={() => step > 1 ? setStep(step - 1) : navigate(-1)}
               className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
               data-testid="back-btn"
@@ -116,115 +162,32 @@ const BookingPage = () => {
       {/* Progress */}
       <div className="max-w-3xl mx-auto px-4 py-4">
         <div className="flex items-center gap-2">
-          {[1, 2, 3].map(s => (
+          {[1, 2].map(s => (
             <React.Fragment key={s}>
               <div className={`w-8 h-8 rounded-full flex items-center justify-center font-medium text-sm ${
-                step >= s 
-                  ? 'bg-gradient-to-br from-primary to-[#FF9E2C] text-white' 
+                step >= s
+                  ? 'bg-gradient-to-br from-primary to-[#FF9E2C] text-white'
                   : 'bg-slate-200 text-slate-500'
               }`}>
                 {step > s ? <CheckCircle className="w-5 h-5" /> : s}
               </div>
-              {s < 3 && (
+              {s < 2 && (
                 <div className={`flex-1 h-1 rounded-full ${step > s ? 'bg-primary' : 'bg-slate-200'}`} />
               )}
             </React.Fragment>
           ))}
         </div>
         <div className="flex justify-between mt-2 text-xs text-slate-500">
-          <span>Pilih Mitra</span>
           <span>Jadwal & Alamat</span>
           <span>Konfirmasi</span>
         </div>
       </div>
 
       <div className="max-w-3xl mx-auto px-4 pb-8">
-        {/* Step 1: Select Mitra */}
+        {/* Step 1: Schedule & Address */}
         {step === 1 && (
-          <div className="space-y-4 animate-fade-in">
-            <h2 className="font-heading font-semibold text-lg text-secondary">Pilih Mitra</h2>
-            
-            {mitras.length > 0 ? (
-              <div className="grid gap-4">
-                {mitras.map(mitra => (
-                  <div 
-                    key={mitra.id}
-                    onClick={() => handleMitraSelect(mitra)}
-                    className={`card p-4 cursor-pointer transition-all ${
-                      selectedMitra?.id === mitra.id 
-                        ? 'ring-2 ring-primary' 
-                        : 'hover:shadow-md'
-                    }`}
-                    data-testid={`select-mitra-${mitra.id}`}
-                  >
-                    <div className="flex items-start gap-4">
-                      <img 
-                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${mitra.name}`}
-                        alt={mitra.name}
-                        className="w-16 h-16 rounded-xl"
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <h3 className="font-medium text-secondary flex items-center gap-2">
-                              {mitra.name}
-                              {mitra.mitra_profile?.is_verified && (
-                                <Shield className="w-4 h-4 text-green-500" />
-                              )}
-                            </h3>
-                            <div className="flex items-center gap-1 mt-1">
-                              <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                              <span className="text-sm font-medium">
-                                {mitra.mitra_profile?.rating?.toFixed(1) || '0.0'}
-                              </span>
-                              <span className="text-xs text-slate-400">
-                                ({mitra.mitra_profile?.total_orders || 0} pesanan)
-                              </span>
-                            </div>
-                          </div>
-                          <span className="flex items-center gap-1 text-xs text-green-600">
-                            <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                            Online
-                          </span>
-                        </div>
-                        <p className="text-sm text-slate-500 mt-2 line-clamp-2">
-                          {mitra.mitra_profile?.description || 'Mitra profesional siap melayani Anda'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state card">
-                <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <p className="text-slate-500">Belum ada mitra online untuk kategori ini</p>
-                <p className="text-sm text-slate-400 mt-1">
-                  Coba waktu lain, atau pilih layanan lain. Mitra perlu mengaktifkan keahlian yang sesuai di dashboard mereka.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Step 2: Schedule & Address */}
-        {step === 2 && (
           <div className="space-y-6 animate-fade-in">
             <h2 className="font-heading font-semibold text-lg text-secondary">Jadwal & Alamat</h2>
-            
-            <div className="card p-4">
-              <div className="flex items-center gap-3 mb-4">
-                <img 
-                  src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedMitra?.name}`}
-                  alt={selectedMitra?.name}
-                  className="w-10 h-10 rounded-lg"
-                />
-                <div>
-                  <p className="font-medium text-secondary text-sm">{selectedMitra?.name}</p>
-                  <p className="text-xs text-slate-500">Mitra terpilih</p>
-                </div>
-              </div>
-            </div>
 
             <div className="space-y-4">
               <div>
@@ -268,17 +231,47 @@ const BookingPage = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  <MapPin className="w-4 h-4 inline mr-2" />
-                  Alamat Lengkap
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-slate-700">
+                    <MapPin className="w-4 h-4 inline mr-2" />
+                    Alamat Lengkap
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleUseMyLocation}
+                    disabled={locating}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                    data-testid="use-my-location"
+                  >
+                    {locating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
+                    Gunakan Lokasi Saya
+                  </button>
+                </div>
                 <textarea
                   value={bookingData.address}
-                  onChange={(e) => setBookingData({ ...bookingData, address: e.target.value })}
+                  onChange={(e) => { setBookingData({ ...bookingData, address: e.target.value }); setCoords(null); }}
                   className="input min-h-[100px] resize-none"
                   placeholder="Masukkan alamat lengkap..."
                   required
                   data-testid="address-input"
+                />
+                {coords && (
+                  <p className="mt-1 text-xs text-green-600">
+                    Titik lokasi tersimpan ({coords.lat.toFixed(4)}, {coords.lng.toFixed(4)})
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Deskripsi kebutuhan (opsional)
+                </label>
+                <textarea
+                  value={bookingData.description}
+                  onChange={(e) => setBookingData({ ...bookingData, description: e.target.value })}
+                  className="input min-h-[80px] resize-none"
+                  placeholder="Jelaskan detail pekerjaan yang Anda butuhkan..."
+                  data-testid="description-input"
                 />
               </div>
 
@@ -297,7 +290,7 @@ const BookingPage = () => {
             </div>
 
             <button
-              onClick={() => setStep(3)}
+              onClick={() => setStep(2)}
               disabled={!bookingData.scheduled_date || !bookingData.scheduled_time || !bookingData.address}
               className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="continue-btn"
@@ -307,15 +300,14 @@ const BookingPage = () => {
           </div>
         )}
 
-        {/* Step 3: Confirmation */}
-        {step === 3 && (
+        {/* Step 2: Confirmation */}
+        {step === 2 && (
           <div className="space-y-6 animate-fade-in">
             <h2 className="font-heading font-semibold text-lg text-secondary">Konfirmasi Pesanan</h2>
-            
-            {/* Order Summary */}
+
             <div className="card p-4 space-y-4">
               <div className="flex items-center gap-4">
-                <img 
+                <img
                   src={service?.image_url || 'https://images.pexels.com/photos/20285350/pexels-photo-20285350.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940'}
                   alt={service?.name}
                   className="w-20 h-20 rounded-xl object-cover"
@@ -330,10 +322,6 @@ const BookingPage = () => {
 
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Mitra</span>
-                  <span className="font-medium">{selectedMitra?.name}</span>
-                </div>
-                <div className="flex justify-between">
                   <span className="text-slate-500">Tanggal</span>
                   <span className="font-medium">{bookingData.scheduled_date}</span>
                 </div>
@@ -345,26 +333,23 @@ const BookingPage = () => {
                   <span className="text-slate-500">Alamat</span>
                   <span className="font-medium text-right max-w-[200px]">{bookingData.address}</span>
                 </div>
-              </div>
-
-              <hr className="border-slate-100" />
-
-              <div className="flex justify-between items-center pt-1">
-                <span className="font-medium text-secondary">Estimasi awal</span>
-                <span className="font-heading text-xl font-bold text-primary">
-                  Rp {service?.price?.toLocaleString('id-ID')}
-                </span>
+                {bookingData.description && (
+                  <div className="flex justify-between items-start">
+                    <span className="text-slate-500">Kebutuhan</span>
+                    <span className="font-medium text-right max-w-[200px]">{bookingData.description}</span>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Negotiation note */}
+            {/* Marketplace note */}
             <div className="card p-4 bg-blue-50 border-blue-100">
               <div className="flex items-start gap-3">
-                <Wallet className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
+                <Users className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
                 <div>
-                  <p className="font-medium text-blue-800">Negosiasi harga dulu</p>
+                  <p className="font-medium text-blue-800">Pilih mitra favorit Anda</p>
                   <p className="text-sm text-blue-700 mt-1">
-                    Pesanan akan masuk ke ruang chat dengan mitra. Anda bisa berdiskusi dan mengirim penawaran harga sebelum pembayaran wallet dilakukan.
+                    Setelah pesanan dibuat, Anda akan melihat daftar mitra beserta harga dasar, rating, dan jaraknya. Pilih satu mitra, lalu negosiasikan harga lewat chat.
                   </p>
                 </div>
               </div>
@@ -376,12 +361,11 @@ const BookingPage = () => {
               className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="submit-booking-btn"
             >
-              {submitting ? 'Memproses...' : 'Ajukan & Mulai Negosiasi'}
+              {submitting ? 'Memproses...' : 'Buat Pesanan & Pilih Mitra'}
             </button>
           </div>
         )}
       </div>
-
     </div>
   );
 };
