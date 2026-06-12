@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { 
   ArrowLeft, MapPin, Calendar, Clock, Phone, Star,
@@ -37,6 +37,17 @@ const formatCurrency = (amount) =>
     currency: 'IDR',
     maximumFractionDigits: 0
   }).format(amount || 0);
+
+const getMessageKey = (message) =>
+  message?.id ||
+  [
+    message?.order_id,
+    message?.sender_id,
+    message?.message_type,
+    message?.created_at,
+    message?.offer_amount,
+    message?.message
+  ].join('|');
 
 const ConfirmDialog = ({
   open,
@@ -109,6 +120,52 @@ const OrderDetailPage = () => {
   const [insufficientOpen, setInsufficientOpen] = useState(false);
   const [topupOpen, setTopupOpen] = useState(false);
   const [walletBalance, setWalletBalance] = useState(null);
+  const chatContainerRef = useRef(null);
+  const shouldStickToBottomRef = useRef(true);
+  const pollingMessagesRef = useRef(false);
+
+  const isChatNearBottom = useCallback(() => {
+    const el = chatContainerRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+  }, []);
+
+  const rememberChatScrollPosition = useCallback(() => {
+    shouldStickToBottomRef.current = isChatNearBottom();
+  }, [isChatNearBottom]);
+
+  const mergeMessages = useCallback((incomingMessages, options = {}) => {
+    const nextMessages = (Array.isArray(incomingMessages) ? incomingMessages : []).filter(Boolean);
+    if (nextMessages.length === 0) return;
+    if (options.stickToBottom) {
+      shouldStickToBottomRef.current = true;
+    } else {
+      rememberChatScrollPosition();
+    }
+
+    setMessages((currentMessages) => {
+      const byKey = new Map();
+      [...currentMessages, ...nextMessages].forEach((message) => {
+        byKey.set(getMessageKey(message), message);
+      });
+      return Array.from(byKey.values()).sort(
+        (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0)
+      );
+    });
+  }, [rememberChatScrollPosition]);
+
+  const loadMessages = useCallback(async () => {
+    if (pollingMessagesRef.current) return;
+    pollingMessagesRef.current = true;
+    try {
+      const response = await getOrderMessages(orderId);
+      mergeMessages(response.data);
+    } catch {
+      //
+    } finally {
+      pollingMessagesRef.current = false;
+    }
+  }, [orderId, mergeMessages]);
 
   const loadOrder = useCallback(async () => {
     try {
@@ -117,7 +174,7 @@ const OrderDetailPage = () => {
         getOrderMessages(orderId).catch(() => ({ data: [] }))
       ]);
       setOrder(response.data);
-      setMessages(Array.isArray(messagesRes.data) ? messagesRes.data : []);
+      mergeMessages(messagesRes.data, { stickToBottom: true });
       
       if (response.data.mitra_id) {
         const mitraRes = await getMitra(response.data.mitra_id);
@@ -129,11 +186,29 @@ const OrderDetailPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [orderId, navigate]);
+  }, [orderId, navigate, mergeMessages]);
 
   useEffect(() => {
     loadOrder();
   }, [loadOrder]);
+
+  useEffect(() => {
+    setMessages([]);
+    shouldStickToBottomRef.current = true;
+  }, [orderId]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(loadMessages, 2500);
+    return () => window.clearInterval(intervalId);
+  }, [loadMessages]);
+
+  useEffect(() => {
+    if (!shouldStickToBottomRef.current) return;
+    const el = chatContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages.length]);
 
   const handleStatusUpdate = async (nextStatus) => {
     try {
@@ -156,12 +231,12 @@ const OrderDetailPage = () => {
 
     setChatSubmitting(true);
     try {
-      await sendOrderMessage(orderId, {
+      const response = await sendOrderMessage(orderId, {
         message: text,
         message_type: 'TEXT'
       });
       setChatText('');
-      await loadOrder();
+      mergeMessages([response.data], { stickToBottom: true });
     } catch (error) {
       const detail = error.response?.data?.detail;
       toast.error(typeof detail === 'string' ? detail : 'Gagal mengirim pesan');
@@ -179,14 +254,14 @@ const OrderDetailPage = () => {
 
     setChatSubmitting(true);
     try {
-      await sendOrderMessage(orderId, {
+      const response = await sendOrderMessage(orderId, {
         message: chatText.trim(),
         message_type: 'OFFER',
         offer_amount: amount
       });
       setChatText('');
       setOfferAmount('');
-      await loadOrder();
+      mergeMessages([response.data], { stickToBottom: true });
     } catch (error) {
       const detail = error.response?.data?.detail;
       toast.error(typeof detail === 'string' ? detail : 'Gagal mengirim penawaran');
@@ -204,13 +279,14 @@ const OrderDetailPage = () => {
 
     setChatSubmitting(true);
     try {
-      await sendOrderMessage(orderId, {
+      const response = await sendOrderMessage(orderId, {
         message: chatText.trim(),
         message_type: 'FINAL_PRICE',
         offer_amount: amount
       });
       setChatText('');
       setFinalPrice('');
+      mergeMessages([response.data], { stickToBottom: true });
       toast.success('Harga final dikirim');
       await loadOrder();
     } catch (error) {
@@ -560,7 +636,11 @@ const OrderDetailPage = () => {
             )}
           </div>
 
-          <div className="max-h-80 space-y-3 overflow-y-auto rounded-xl bg-primary/5 p-3">
+          <div
+            ref={chatContainerRef}
+            onScroll={rememberChatScrollPosition}
+            className="max-h-80 space-y-3 overflow-y-auto rounded-xl bg-primary/5 p-3"
+          >
             {messages.length === 0 ? (
               <p className="text-sm text-slate-500 text-center py-6">
                 Belum ada pesan. Mulai diskusi harga dan kebutuhan layanan di sini.
