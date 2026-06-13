@@ -389,27 +389,30 @@ Notifications
 
 #### Mitra Dashboard
 Dashboard stats
-
+![mitra dashboard](./docs/screenshots/mitra/dashboard.png)
 Incoming orders
-
+![incoming_order](./docs/screenshots/mitra/incoming_order.png)
 Earnings
-
+![earn](./docs/screenshots/mitra/earning.png)
 Wallet
-
+![wallet](./docs/screenshots/mitra/wallet.png)
 Profile & verification
-
+![profile](./docs/screenshots/mitra/profile.png)
 Notifications
+![notif2](./docs/screenshots/mitra/notif.png)
 
 #### Admin Dashboard
 Overview stats
-
+![stats](./docs/screenshots/admin/dashboard.png)
 User management
-
+![userss](./docs/screenshots/admin/user_management.png)
 Mitra verification
-
+![mitraa](./docs/screenshots/admin/mitra_management.png)
+Money management
+![money](./docs/screenshots/admin/money.png)
 Transaction monitoring
+![transaction](./docs/screenshots/admin/transaction.png)
 
-Reports
 
 ## 🚦 Status Development
 
