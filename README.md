@@ -368,26 +368,47 @@ Register page
 ![Register Page](./docs/screenshots/auth/Register_page.png)
 Login page
 ![Login Page](./docs/screenshots/auth/Login_page.png)
+
 #### User Dashboard
 Home / Browse services
-Service detail
+![Home](./docs/screenshots/user/home_page.png)
 Create booking
+![booking](./docs/screenshots/user/create_booking.png)
+Order confirmation
+![order](./docs/screenshots/user/order_confirmation.png)
+Choosing mitra
+![choose](./docs/screenshots/user/choose_mitra.png)
+Chat and price negotiation
+![chat](./docs/screenshots/user/chat_mitra.png)
 Order history
+![order_history](./docs/screenshots/user/order_history.png)
 Wallet & transactions
-Profile
+![wallett](./docs/screenshots/user/wallet.png)
+Notifications
+![notif1](./docs/screenshots/user/notif.png)
 
 #### Mitra Dashboard
 Dashboard stats
+
 Incoming orders
-Order management
-Earnings & wallet
+
+Earnings
+
+Wallet
+
 Profile & verification
+
+Notifications
 
 #### Admin Dashboard
 Overview stats
+
 User management
+
 Mitra verification
+
 Transaction monitoring
+
 Reports
 
 ## 🚦 Status Development
