@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://suruahai.vercel.app">Live Demo</a> •
+  <a href="https://suru-ahai-motp.vercel.app/">Live Demo</a> •
   <a href="https://github.com/FireClow/SuruAhai">GitHub</a>
 </p>
 
@@ -436,6 +436,10 @@ Transaction monitoring
 
 ---
 
+## 📚 Additional Documentation
+- [`BACKEND_Run.md`](./docs/BACKEND_Run.md) - Detailed backend setup
+- [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) - Deployment guide
+  
 ## 👥 Tim
 
 | Nama | NIM |
