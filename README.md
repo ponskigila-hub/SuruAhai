@@ -359,19 +359,36 @@ Detail lebih lanjut: [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) dan [`docs/BAC
 
 ---
 
-## 📸 Screenshots
+## 📸 Screenshots & Mockups
+ 
+### 🎨 UI Components
+  
+#### Authentication
+Register page
+![Register Page](./docs/screenshots/auth/Register_page.png)
+Login page
+![Login Page](./docs/screenshots/auth/Login_page.png)
+#### User Dashboard
+Home / Browse services
+Service detail
+Create booking
+Order history
+Wallet & transactions
+Profile
 
-Contoh screenshot ada di `docs/screenshots/`:
+#### Mitra Dashboard
+Dashboard stats
+Incoming orders
+Order management
+Earnings & wallet
+Profile & verification
 
-```text
-docs/screenshots/
-├── auth/       # Login & Register
-├── user/       # Dashboard & booking
-├── mitra/      # Profil jasa & dashboard
-└── admin/      # Verifikasi & monitoring
-```
-
----
+#### Admin Dashboard
+Overview stats
+User management
+Mitra verification
+Transaction monitoring
+Reports
 
 ## 🚦 Status Development
 
